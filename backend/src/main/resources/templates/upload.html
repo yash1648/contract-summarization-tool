@@ -1,0 +1,173 @@
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!-- Inject into layout -->
+<th:block th:replace="~{layout :: layout('Upload Contract', ~{this :: content})}">
+
+    <!-- Page Content -->
+    <th:block th:fragment="content">
+
+        <div class="d-flex align-items-center mb-4">
+            <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
+                <i class="bi bi-upload me-2" style="color:#00b4d8;"></i>Upload Contract
+            </h2>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-md-7">
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold">Select a Contract File</div>
+                    <div class="card-body">
+
+                        <form th:action="@{/contracts/upload}" method="post" enctype="multipart/form-data"
+                              id="uploadForm">
+
+                            <!-- Drop zone -->
+                            <div class="border-2 border-dashed rounded p-5 text-center mb-3"
+                                 id="dropZone"
+                                 style="border:2px dashed #00b4d8; cursor:pointer; background:#f0faff;">
+
+                                <i class="bi bi-cloud-upload display-4" style="color:#00b4d8;"></i>
+                                <p class="mt-2 text-muted">Drag & drop your PDF or DOCX here</p>
+                                <p class="text-muted small">or</p>
+
+                                <label for="fileInput" class="btn btn-outline-primary">Browse File</label>
+                                <input type="file"
+                                       id="fileInput"
+                                       name="file"
+                                       class="d-none"
+                                       accept=".pdf,.docx"
+                                       required/>
+                            </div>
+
+                            <!-- File preview -->
+                            <div id="filePreview" class="d-none alert alert-info">
+                                <i class="bi bi-file-earmark me-2"></i>
+                                <span id="fileName"></span>
+                                <span class="ms-2 text-muted small" id="fileSize"></span>
+                            </div>
+
+                            <!-- Constraints -->
+                            <ul class="small text-muted mb-3">
+                                <li>Accepted formats: <strong>PDF</strong>, <strong>DOCX</strong></li>
+                                <li>Maximum file size: <strong>20 MB</strong></li>
+                                <li>Text must be selectable (scanned images are not supported)</li>
+                            </ul>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary" id="submitBtn">
+                                    <i class="bi bi-upload me-1"></i>Upload & Process
+                                </button>
+                                <a th:href="@{/contracts}" class="btn btn-outline-secondary">Cancel</a>
+                            </div>
+
+                        </form>
+
+                        <!-- Progress -->
+                        <div id="progressArea" class="d-none mt-3">
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated w-100"
+                                     style="background:#00b4d8;"></div>
+                            </div>
+                            <p class="text-muted small mt-2 text-center">
+                                Uploading and extracting text… please wait.
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Pipeline explanation -->
+                <div class="card mt-3 shadow-sm">
+                    <div class="card-header fw-semibold">What happens after upload?</div>
+                    <div class="card-body">
+
+                        <div class="d-flex align-items-start mb-2">
+                            <span class="badge bg-primary me-3">1</span>
+                            <div><strong>Text Extraction</strong> — Apache PDFBox / POI extracts raw text</div>
+                        </div>
+
+                        <div class="d-flex align-items-start mb-2">
+                            <span class="badge bg-primary me-3">2</span>
+                            <div><strong>Chunking</strong> — Text split into 300–500 token overlapping segments</div>
+                        </div>
+
+                        <div class="d-flex align-items-start mb-2">
+                            <span class="badge me-3" style="background:#ffb300;color:#000;">3</span>
+                            <div>
+                                <strong>Embedding</strong> —
+                                <span class="badge bg-warning text-dark">TODO</span>
+                                Chunks sent to Python AI service for vector embedding into FAISS
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-start">
+                            <span class="badge me-3" style="background:#ffb300;color:#000;">4</span>
+                            <div>
+                                <strong>Analysis</strong> —
+                                <span class="badge bg-warning text-dark">TODO</span>
+                                RAG retrieval + LLM summarization + risk scoring
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <script>
+            const input    = document.getElementById('fileInput');
+            const dropZone = document.getElementById('dropZone');
+            const preview  = document.getElementById('filePreview');
+            const nameEl   = document.getElementById('fileName');
+            const sizeEl   = document.getElementById('fileSize');
+            const form     = document.getElementById('uploadForm');
+            const progress = document.getElementById('progressArea');
+            const submitBtn= document.getElementById('submitBtn');
+
+            dropZone.addEventListener('click', () => input.click());
+
+            dropZone.addEventListener('dragover', e => {
+                e.preventDefault();
+                dropZone.style.background='#cceeff';
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.style.background='#f0faff';
+            });
+
+            dropZone.addEventListener('drop', e => {
+                e.preventDefault();
+                dropZone.style.background='#f0faff';
+                if (e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    showPreview(input.files[0]);
+                }
+            });
+
+            input.addEventListener('change', () => {
+                if (input.files.length) showPreview(input.files[0]);
+            });
+
+            function showPreview(file) {
+                nameEl.textContent = file.name;
+                sizeEl.textContent = '(' + (file.size / 1024 / 1024).toFixed(2) + ' MB)';
+                preview.classList.remove('d-none');
+            }
+
+            form.addEventListener('submit', () => {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing…';
+                progress.classList.remove('d-none');
+            });
+        </script>
+
+    </th:block>
+</th:block>
+
+</body>
+</html>
+```

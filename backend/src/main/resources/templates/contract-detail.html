@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('Contract Detail', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+<div class="d-flex align-items-center mb-4 gap-3">
+    <a th:href="@{/contracts}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
+        <i class="bi bi-file-earmark-text me-2" style="color:#00b4d8;"></i>
+        <span th:text="${contract.fileName}">contract.pdf</span>
+    </h2>
+    <span class="status-pill ms-auto"
+          th:classappend="'status-' + ${contract.status}"
+          th:text="${contract.status}">UPLOADED</span>
+</div>
+
+<!-- Metadata cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">File Type</div>
+                <div class="fw-bold" th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">File Size</div>
+                <div class="fw-bold" th:text="${#numbers.formatDecimal(contract.fileSize / 1024.0 / 1024.0, 1, 2) + ' MB'}">0 MB</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">Total Chunks</div>
+                <div class="fw-bold" th:text="${contract.totalChunks}">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">Uploaded</div>
+                <div class="fw-bold small"
+                     th:text="${#temporals.format(contract.createdAt, 'dd MMM yyyy')}">-</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Action buttons -->
+<div class="d-flex gap-2 mb-4">
+    <form th:if="${contract.status != T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+          th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post">
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-cpu me-1"></i>Run AI Analysis
+        </button>
+    </form>
+    <a th:if="${contract.status == T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+       th:href="@{/analysis/{id}/results(id=${contract.id})}"
+       class="btn btn-primary">
+        <i class="bi bi-eye me-1"></i>View Analysis Results
+    </a>
+    <form th:action="@{/contracts/{id}/delete(id=${contract.id})}" method="post"
+          onsubmit="return confirm('Delete this contract and all associated data?')">
+        <button type="submit" class="btn btn-outline-danger">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+    </form>
+</div>
+
+<!-- Chunk preview -->
+<div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between">
+        <span class="fw-semibold"><i class="bi bi-scissors me-2"></i>Text Chunk Preview</span>
+        <span class="text-muted small">Showing 3 of <span th:text="${contract.totalChunks}">0</span> chunks</span>
+    </div>
+    <div class="card-body">
+        <div th:if="${previewChunks.empty}" class="text-muted">No chunks available.</div>
+        <div th:each="chunk, i : ${previewChunks}" class="mb-3">
+            <div class="d-flex align-items-center mb-1 gap-2">
+                <span class="badge bg-primary">Chunk #<span th:text="${chunk.index}">0</span></span>
+                <span class="text-muted small"
+                      th:text="${chunk.text.length()} + ' characters'">0 characters</span>
+                <span class="badge bg-success ms-auto"
+                      th:if="${chunk.embedded}">Embedded ✓</span>
+                <span class="badge bg-warning text-dark ms-auto"
+                      th:unless="${chunk.embedded}">Pending Embed (TODO)</span>
+            </div>
+            <div class="chunk-preview"
+                 th:text="${#strings.abbreviate(chunk.text, 400)}">chunk text...</div>
+        </div>
+    </div>
+</div>
+</th:block>
+</body>
+</html>

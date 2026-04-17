@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout(
+          pageTitle='Semantic Search — ContractAI',
+          activePage='search',
+          content=~{::main-content},
+          extraStyles=~{},
+          extraScripts=~{})}">
+<body>
+<th:block th:fragment="main-content">
+
+    <div class="page-header">
+        <h1><i class="bi bi-search me-2 text-primary"></i>Semantic Search</h1>
+        <p>Ask questions about your contracts in natural language.</p>
+    </div>
+
+    <!-- AI TODO banner -->
+    <div class="ai-todo-banner p-3 mb-4 d-flex align-items-start gap-3">
+        <i class="bi bi-cpu text-warning fs-4 mt-1"></i>
+        <div>
+            <strong class="text-white">TODO — Requires Python AI Service</strong>
+            <p class="mb-0 text-muted small mt-1">
+                Semantic search uses FAISS vector similarity search powered by the Python microservice.
+                Results below are stub placeholders until <code>app.ai.service.enabled=true</code>.
+            </p>
+        </div>
+    </div>
+
+    <!-- Search form -->
+    <div class="card mb-4">
+        <div class="card-body p-4">
+            <form th:action="@{/analysis/search}" method="post"
+                  th:object="${searchRequest}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Contract (optional)</label>
+                        <select th:field="*{contractId}" class="form-select">
+                            <option value="">— Search all contracts —</option>
+                            <option th:each="c : ${contracts}"
+                                    th:value="${c.id}"
+                                    th:text="${c.fileName}">contract.pdf</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Your question</label>
+                        <input type="text" th:field="*{query}"
+                               class="form-control"
+                               placeholder="e.g. What are the penalty clauses for late payment?"
+                               required/>
+                        <div th:if="${#fields.hasErrors('query')}"
+                             class="text-danger small mt-1"
+                             th:errors="*{query}"></div>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search me-1"></i>Search
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Error -->
+    <div th:if="${searchError}" class="alert alert-danger" th:text="${searchError}"></div>
+
+    <!-- Search results -->
+    <div th:if="${searchResults}">
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <h5 class="mb-0">Results for:</h5>
+            <span class="badge bg-primary fs-6 fw-normal" th:text="'&quot;' + ${query} + '&quot;'"></span>
+        </div>
+        <div th:each="r, i : ${searchResults}" class="card mb-3">
+            <div class="card-header d-flex justify-content-between">
+                <span>
+                    <i class="bi bi-file-text me-1"></i>
+                    Match <span th:text="${i.index + 1}">1</span>
+                    — Chunk #<span th:text="${r.chunkIndex}">0</span>
+                </span>
+                <span class="badge bg-success"
+                      th:text="'Score: ' + ${#numbers.formatDecimal(r.score, 1, 3)}">Score: 0.000</span>
+            </div>
+            <div class="card-body">
+                <p th:text="${r.text}" style="white-space: pre-wrap; font-size: 0.9rem; line-height:1.6">
+                    chunk text
+                </p>
+            </div>
+        </div>
+    </div>
+
+</th:block>
+</body>
+</html>

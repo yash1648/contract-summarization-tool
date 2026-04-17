@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('Analysis Results', ~{::content})}">
+<body>
+<th:block th:fragment="content">
+<div class="d-flex align-items-center mb-4 gap-3">
+    <a th:href="@{/contracts/{id}(id=${analysis.contractId})}"
+       class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
+        <i class="bi bi-bar-chart-line me-2" style="color:#00b4d8;"></i>Analysis Results
+    </h2>
+    <span class="ms-auto text-muted small" th:text="${analysis.fileName}">contract.pdf</span>
+</div>
+
+<!-- AI Service TODO banner -->
+<div class="todo-banner mb-4" th:unless="${analysis.aiServiceActive}">
+    <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
+    <strong>AI Service not connected.</strong>
+    The summary and risk data below are placeholder stubs.
+    Connect the Python AI microservice and set
+    <code>app.ai.service.enabled=true</code> to get real results.
+</div>
+
+<!-- Risk score hero -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card text-center h-100 shadow-sm"
+             th:style="${analysis.riskScore > 6.6 ? 'border-left: 5px solid #dc3545;' :
+                         analysis.riskScore > 3.3 ? 'border-left: 5px solid #fd7e14;' :
+                                                     'border-left: 5px solid #198754;'}">
+            <div class="card-body py-4">
+                <div class="text-muted mb-1">Risk Score</div>
+                <div class="display-4 fw-bold"
+                     th:text="${#numbers.formatDecimal(analysis.riskScore, 1, 1)}">0.0</div>
+                <div class="text-muted small">out of 10.0</div>
+                <span class="badge mt-2"
+                      th:classappend="${riskBadgeClass}"
+                      th:text="${analysis.riskLevel}">LOW</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <div class="text-muted small">Penalty Clauses</div>
+                <div class="display-6 fw-bold text-danger"
+                     th:text="${analysis.riskReport != null ? analysis.riskReport.penaltyClauses.size() : 0}">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <div class="text-muted small">Termination Risks</div>
+                <div class="display-6 fw-bold text-warning"
+                     th:text="${analysis.riskReport != null ? analysis.riskReport.terminationRisks.size() : 0}">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <div class="text-muted small">Liability Issues</div>
+                <div class="display-6 fw-bold text-warning"
+                     th:text="${analysis.riskReport != null ? analysis.riskReport.liabilityIssues.size() : 0}">0</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <div class="text-muted small">Chunks Used</div>
+                <div class="display-6 fw-bold"
+                     th:text="${analysis.chunksUsed}">0</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">
+        <i class="bi bi-align-left me-2"></i>AI-Generated Summary
+        <span class="badge bg-warning text-dark ms-2" th:unless="${analysis.aiServiceActive}">TODO — stub data</span>
+    </div>
+    <div class="card-body" style="white-space:pre-wrap; font-size:.95rem;"
+         th:text="${analysis.summary}">No summary available.</div>
+</div>
+
+<!-- Risk details -->
+<div class="card shadow-sm mb-4" th:if="${analysis.aiServiceActive}">
+    <div class="card-header fw-semibold">
+        <i class="bi bi-shield-exclamation me-2 text-danger"></i>Risk Details
+    </div>
+    <div class="card-body">
+        <div class="mb-3" th:if="${!analysis.riskReport.penaltyClauses.empty}">
+            <h6 class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>Penalty Clauses</h6>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item" th:each="c : ${analysis.riskReport.penaltyClauses}"
+                    th:text="${c}">clause</li>
+            </ul>
+        </div>
+        <div class="mb-3" th:if="${!analysis.riskReport.terminationRisks.empty}">
+            <h6 class="text-warning"><i class="bi bi-dash-circle me-1"></i>Termination Risks</h6>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item" th:each="r : ${analysis.riskReport.terminationRisks}"
+                    th:text="${r}">risk</li>
+            </ul>
+        </div>
+        <div th:if="${!analysis.riskReport.liabilityIssues.empty}">
+            <h6 class="text-warning"><i class="bi bi-info-circle me-1"></i>Liability Issues</h6>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item" th:each="l : ${analysis.riskReport.liabilityIssues}"
+                    th:text="${l}">liability</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Semantic Search (TODO badge) -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">
+        <i class="bi bi-search me-2"></i>Semantic Search
+        <span class="badge bg-warning text-dark ms-2">TODO — requires Python AI service</span>
+    </div>
+    <div class="card-body">
+        <div class="input-group">
+            <input type="text" id="searchQuery" class="form-control"
+                   placeholder="e.g. What are the payment terms?"/>
+            <button class="btn btn-outline-primary" onclick="runSearch()">
+                <i class="bi bi-search me-1"></i>Search
+            </button>
+        </div>
+        <div id="searchResults" class="mt-3"></div>
+    </div>
+</div>
+
+<script th:inline="javascript">
+const contractId = /*[[${analysis.contractId}]]*/ '';
+
+async function runSearch() {
+    const query = document.getElementById('searchQuery').value.trim();
+    if (!query) return;
+    const res = document.getElementById('searchResults');
+    res.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Searching…';
+    try {
+        const resp = await fetch('/analysis/search', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ contractId, query, topK: 5 })
+        });
+        const data = await resp.json();
+        res.innerHTML = data.results.map((r, i) =>
+            `<div class="card mb-2"><div class="card-body">
+                <div class="d-flex justify-content-between mb-1">
+                    <span class="badge bg-primary">Chunk #${r.chunkIndex}</span>
+                    <span class="text-muted small">Score: ${r.score.toFixed(4)}</span>
+                </div>
+                <p class="mb-0 small">${r.text}</p>
+            </div></div>`
+        ).join('') || '<p class="text-muted">No results found.</p>';
+    } catch(e) {
+        res.innerHTML = '<div class="alert alert-danger">Search failed: ' + e.message + '</div>';
+    }
+}
+
+document.getElementById('searchQuery').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runSearch();
+});
+</script>
+</th:block>
+</body>
+</html>

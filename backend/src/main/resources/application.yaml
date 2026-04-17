@@ -1,5 +1,54 @@
 spring:
   application:
-    name: ai-assistant
+    name: ai-assistant-backend
+
+  #  mongo db
+  mongodb:
+    uri: mongodb://admin:password@localhost:27017/ai_assistant_db?authSource=admin
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+      enabled: true
+
+  # Thymleaf
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: false
+
+  # Logging level
+logging:
+  level:
+    root: INFO
+    com.grim: DEBUG
+    org.springframework.data.mongodb: DEBUG
+
+# File type
+
+app:
+  upload:
+    dir: /home/grim/Project/ai-contract-system/uploads
+    allowed-types: application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+
+
+  #Chunking
+  chunking:
+      size: 1600
+      overlap: 200
+  # Python ai service
+  ai:
+    service:
+        url: http://localhost:5000
+        enabled: false
+        timeout-second: 30
+
+
+
+# Server port
+
 server:
   port: 6969
+
