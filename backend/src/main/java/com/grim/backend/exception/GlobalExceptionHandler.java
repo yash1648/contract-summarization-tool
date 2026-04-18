@@ -1,5 +1,6 @@
 package com.grim.backend.exception;
 
+import com.grim.backend.service.AiIntegrationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.ui.Model;
@@ -9,8 +10,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
- * Global exception handler — returns error.html Thymeleaf view
- * for all unhandled exceptions, keeping the user in-browser.
+ * Global exception handler.
+ * Returns the error.html Thymeleaf view for all unhandled exceptions.
  */
 @Slf4j
 @ControllerAdvice
@@ -43,6 +44,18 @@ public class GlobalExceptionHandler {
         return "error";
     }
 
+    @ExceptionHandler(AiIntegrationService.AiServiceException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public String handleAiServiceError(AiIntegrationService.AiServiceException ex, Model model) {
+        log.error("AI service error: {}", ex.getMessage());
+        model.addAttribute("errorTitle",   "AI Service Unavailable");
+        model.addAttribute("errorMessage", ex.getMessage()
+                + "\n\nMake sure the Python AI service is running on port 5000 "
+                + "and Ollama has the llama3 model loaded.");
+        model.addAttribute("statusCode",   503);
+        return "error";
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public String handleIllegalState(IllegalStateException ex, Model model) {
@@ -57,7 +70,7 @@ public class GlobalExceptionHandler {
     public String handleGeneric(Exception ex, Model model) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
         model.addAttribute("errorTitle",   "Unexpected Error");
-        model.addAttribute("errorMessage", "Something went wrong. Please try again.");
+        model.addAttribute("errorMessage", "Something went wrong: " + ex.getMessage());
         model.addAttribute("statusCode",   500);
         return "error";
     }

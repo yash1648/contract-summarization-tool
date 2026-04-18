@@ -13,48 +13,29 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * ============================================================
- *  AI INTEGRATION SERVICE
- *  Spring Boot ↔ Python AI Microservice
- * ============================================================
+ * Live bridge between Spring Boot and the Python AI microservice.
  *
- *  This service is the bridge between the Spring Boot backend
- *  and the Python AI service (FastAPI + FAISS + LLM).
+ * All four endpoints the Python service exposes are called here:
+ *   POST   /api/ai/embed
+ *   POST   /api/ai/analyze
+ *   POST   /api/ai/search
+ *   DELETE /api/ai/contract/{id}
  *
- *  Current state:
- *    app.ai.service.enabled=false  →  all methods return STUB data
- *    app.ai.service.enabled=true   →  live HTTP calls to Python
+ * Error handling strategy:
+ *   - Network errors (connection refused, timeout) → throw AiServiceException
+ *     so callers can decide to retry or fall back.
+ *   - 4xx from Python → re-throw with the Python error body included.
+ *   - 5xx from Python → throw AiServiceException (Python-side crash).
+ *   - Retries: up to maxRetries attempts with retryDelayMs pause between them.
  *
- * ──────────────────────────────────────────────────────────────
- *  TODO — Python AI Service Endpoints (implement on Python side):
- *
- *  POST /api/ai/embed
- *    Request : { "contractId": "...", "chunks": [{ "index": 0, "text": "..." }, ...] }
- *    Response: { "embeddingIds": ["uuid1", "uuid2", ...] }
- *    Action  : Generates sentence-transformer embeddings, stores them in FAISS,
- *              returns one UUID per chunk.
- *
- *  POST /api/ai/analyze
- *    Request : { "contractId": "...", "chunkTexts": ["..."] }
- *    Response: { "summary": "...", "riskScore": 4.2,
- *                "penaltyClauses": [...], "terminationRisks": [...],
- *                "liabilityIssues": [...], "otherFlags": [...],
- *                "chunksUsed": 7 }
- *    Action  : Runs RAG retrieval + LLM summarization + risk analysis.
- *
- *  POST /api/ai/search
- *    Request : { "contractId": "...", "query": "...", "topK": 5 }
- *    Response: { "results": [{ "chunkIndex": 2, "text": "...", "score": 0.91 }, ...] }
- *    Action  : Embeds the query, queries FAISS for top-k chunks.
- *
- *  DELETE /api/ai/contract/{contractId}
- *    Response: { "deleted": true }
- *    Action  : Removes all FAISS vectors for a contract.
- * ──────────────────────────────────────────────────────────────
+ * When app.ai.service.enabled=false every method falls back to a stub so
+ * the Spring Boot app still starts and serves pages without Python running.
  */
 @Slf4j
 @Service
@@ -63,201 +44,162 @@ public class AiIntegrationService {
 
     private final WebClient aiWebClient;
 
-    @Value("${app.ai.service.enabled:false}")
+    @Value("${app.ai.service.enabled:true}")
     private boolean aiServiceEnabled;
 
-    @Value("${app.ai.service.timeout-seconds:30}")
+    @Value("${app.ai.service.timeout-seconds:120}")
     private int timeoutSeconds;
 
+    @Value("${app.ai.service.max-retries:2}")
+    private int maxRetries;
+
+    @Value("${app.ai.service.retry-delay-ms:1000}")
+    private long retryDelayMs;
+
     // ══════════════════════════════════════════════════════════
-    //  1. SEND CHUNKS FOR EMBEDDING
+    //  1. EMBED — POST /api/ai/embed
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Send contract chunks to the Python service for embedding generation.
-     * Returns a map of chunkIndex → FAISS embeddingId.
+     * Send contract chunks to Python for sentence-transformer embedding + FAISS storage.
      *
-     * When AI service is disabled: returns empty map (stubs remain unembedded).
+     * Python request:
+     *   { "contractId": "...", "chunks": [{ "index": 0, "text": "..." }] }
      *
-     * @param contractId the contract's MongoDB ID
-     * @param chunks     the list of chunks to embed
-     * @return map from chunk index to embeddingId assigned by Python service
+     * Python response:
+     *   { "contractId": "...", "embeddingIds": ["uuid1", ...], "chunksEmbedded": 5 }
+     *
+     * @return map of chunkIndex → FAISS embeddingId (empty if AI disabled / error)
      */
     public Map<Integer, String> sendChunksForEmbedding(String contractId,
-                                                        List<ContractChunk> chunks) {
+                                                       List<ContractChunk> chunks) {
         if (!aiServiceEnabled) {
-            log.warn("TODO [AI SERVICE DISABLED] — sendChunksForEmbedding skipped for contractId={}. "
-                    + "Enable app.ai.service.enabled=true once Python service is running.", contractId);
+            log.warn("[AI DISABLED] sendChunksForEmbedding skipped for contractId={}", contractId);
             return Map.of();
         }
+        if (chunks == null || chunks.isEmpty()) return Map.of();
 
-        log.info("Sending {} chunks for embedding — contractId={}", chunks.size(), contractId);
+        log.info("[embed] Sending {} chunks → Python  contractId={}", chunks.size(), contractId);
 
-        try {
-            // Build request body
-            List<Map<String, Object>> chunkPayload = chunks.stream()
-                    .map(c -> Map.<String, Object>of("index", c.getIndex(), "text", c.getText()))
-                    .toList();
+        List<Map<String, Object>> chunkPayload = chunks.stream()
+                .map(c -> Map.<String, Object>of("index", c.getIndex(), "text", c.getText()))
+                .toList();
 
-            Map<String, Object> requestBody = Map.of(
-                    "contractId", contractId,
-                    "chunks", chunkPayload
-            );
+        Map<String, Object> body = Map.of("contractId", contractId, "chunks", chunkPayload);
 
-            // Call Python service
-            JsonNode response = aiWebClient.post()
-                    .uri("/api/ai/embed")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
-                    .block();
+        JsonNode response = callWithRetry("/api/ai/embed", body, "embed");
 
-            // Parse embeddingIds array from response
-            java.util.HashMap<Integer, String> result = new java.util.HashMap<>();
-            if (response != null && response.has("embeddingIds")) {
-                JsonNode ids = response.get("embeddingIds");
-                for (int i = 0; i < ids.size() && i < chunks.size(); i++) {
-                    result.put(chunks.get(i).getIndex(), ids.get(i).asText());
-                }
+        Map<Integer, String> result = new HashMap<>();
+        if (response != null && response.has("embeddingIds")) {
+            JsonNode ids = response.get("embeddingIds");
+            for (int i = 0; i < ids.size() && i < chunks.size(); i++) {
+                result.put(chunks.get(i).getIndex(), ids.get(i).asText());
             }
-            log.info("Embedding complete: {} embedding IDs received", result.size());
-            return result;
-
-        } catch (WebClientResponseException e) {
-            log.error("AI service returned error {} for embedding request: {}",
-                    e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("AI service embedding failed: " + e.getMessage(), e);
         }
+        log.info("[embed] Received {} embedding IDs for contractId={}", result.size(), contractId);
+        return result;
     }
 
     // ══════════════════════════════════════════════════════════
-    //  2. RUN FULL ANALYSIS (SUMMARIZATION + RISK)
+    //  2. ANALYZE — POST /api/ai/analyze
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Request a full RAG-based analysis from the Python service.
-     * Returns a populated AnalysisResult.
+     * Run full RAG analysis: Python retrieves relevant chunks from FAISS,
+     * runs two Ollama LLM passes (summary + risk), and returns structured results.
      *
-     * When AI service is disabled: returns a stub AnalysisResult
-     * with placeholder text and a note in the summary field.
+     * Python request:
+     *   { "contractId": "...", "chunkTexts": ["chunk1", "chunk2", ...] }
      *
-     * @param contractId the contract's MongoDB ID
-     * @param contractFileName the original filename (for display)
-     * @param chunks     all chunks for this contract
-     * @return AnalysisResult ready to be saved to MongoDB
+     * Python response:
+     *   { "summary": "...", "riskScore": 4.2,
+     *     "penaltyClauses": [...], "terminationRisks": [...],
+     *     "liabilityIssues": [...], "otherFlags": [...], "chunksUsed": 7 }
+     *
+     * @throws AiServiceException if the Python service is unreachable or returns an error
      */
     public AnalysisResult analyze(String contractId,
-                                   String contractFileName,
-                                   List<ContractChunk> chunks) {
+                                  String contractFileName,
+                                  List<ContractChunk> chunks) {
         if (!aiServiceEnabled) {
-            log.warn("TODO [AI SERVICE DISABLED] — analyze() returning STUB result for contractId={}. "
-                    + "Connect Python AI service and set app.ai.service.enabled=true.", contractId);
+            log.warn("[AI DISABLED] analyze() returning stub for contractId={}", contractId);
             return buildStubResult(contractId, contractFileName, chunks.size());
         }
 
-        log.info("Requesting AI analysis — contractId={}, chunks={}", contractId, chunks.size());
+        log.info("[analyze] Starting RAG analysis  contractId={}  chunks={}", contractId, chunks.size());
 
-        try {
-            List<String> chunkTexts = chunks.stream()
-                    .map(ContractChunk::getText)
-                    .toList();
+        List<String> chunkTexts = chunks.stream().map(ContractChunk::getText).toList();
+        Map<String, Object> body = Map.of("contractId", contractId, "chunkTexts", chunkTexts);
 
-            Map<String, Object> requestBody = Map.of(
-                    "contractId", contractId,
-                    "chunkTexts", chunkTexts
-            );
+        JsonNode response = callWithRetry("/api/ai/analyze", body, "analyze");
 
-            JsonNode response = aiWebClient.post()
-                    .uri("/api/ai/analyze")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
-                    .block();
-
-            return parseAnalysisResponse(contractId, contractFileName, response);
-
-        } catch (WebClientResponseException e) {
-            log.error("AI service returned error {} for analyze request: {}",
-                    e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("AI analysis failed: " + e.getMessage(), e);
-        }
+        AnalysisResult result = parseAnalysisResponse(contractId, contractFileName, response);
+        log.info("[analyze] Done  contractId={}  riskScore={}  chunksUsed={}",
+                contractId, result.getRiskScore(), result.getChunksUsed());
+        return result;
     }
 
     // ══════════════════════════════════════════════════════════
-    //  3. SEMANTIC SEARCH
+    //  3. SEARCH — POST /api/ai/search
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Query the Python AI service for semantically similar chunks.
+     * Encode the user's query and search FAISS for semantically similar chunks.
      *
-     * When AI service is disabled: returns a list with a single
-     * "service unavailable" message so the UI degrades gracefully.
+     * Python request:
+     *   { "contractId": "...", "query": "...", "topK": 5 }
      *
-     * @param contractId (optional) restrict search to one contract
-     * @param query      natural language search string
-     * @param topK       number of results to return
-     * @return list of matching chunk texts with similarity scores
+     * Python response:
+     *   { "results": [{ "chunkIndex": 2, "text": "...", "score": 0.91 }], "count": 1 }
      */
     public List<Map<String, Object>> semanticSearch(String contractId,
-                                                     String query,
-                                                     int topK) {
+                                                    String query,
+                                                    int topK) {
         if (!aiServiceEnabled) {
-            log.warn("TODO [AI SERVICE DISABLED] — semanticSearch() returning empty for query='{}'", query);
+            log.warn("[AI DISABLED] semanticSearch skipped for query='{}'", query);
             return List.of(Map.of(
                     "chunkIndex", 0,
-                    "text", "⚠ AI service is not yet connected. "
-                            + "Enable app.ai.service.enabled=true to activate semantic search.",
+                    "text", "AI service is disabled. Set app.ai.service.enabled=true to activate.",
                     "score", 0.0
             ));
         }
 
-        try {
-            Map<String, Object> requestBody = new java.util.HashMap<>();
-            if (contractId != null) requestBody.put("contractId", contractId);
-            requestBody.put("query", query);
-            requestBody.put("topK", topK);
+        log.info("[search] query='{}' contractId={} topK={}", query, contractId, topK);
 
-            JsonNode response = aiWebClient.post()
-                    .uri("/api/ai/search")
-                    .bodyValue(requestBody)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
-                    .block();
+        Map<String, Object> body = new HashMap<>();
+        if (contractId != null) body.put("contractId", contractId);
+        body.put("query", query);
+        body.put("topK", topK);
 
-            List<Map<String, Object>> results = new java.util.ArrayList<>();
-            if (response != null && response.has("results")) {
-                for (JsonNode node : response.get("results")) {
-                    results.add(Map.of(
-                            "chunkIndex", node.get("chunkIndex").asInt(),
-                            "text",       node.get("text").asText(),
-                            "score",      node.get("score").asDouble()
-                    ));
-                }
+        JsonNode response = callWithRetry("/api/ai/search", body, "search");
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        if (response != null && response.has("results")) {
+            for (JsonNode node : response.get("results")) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("chunkIndex", node.path("chunkIndex").asInt(0));
+                item.put("text",       node.path("text").asText(""));
+                item.put("score",      node.path("score").asDouble(0.0));
+                if (node.has("contractId")) item.put("contractId", node.path("contractId").asText());
+                results.add(item);
             }
-            return results;
-
-        } catch (WebClientResponseException e) {
-            log.error("AI service search error: {}", e.getMessage());
-            throw new RuntimeException("Semantic search failed: " + e.getMessage(), e);
         }
+        log.info("[search] Returned {} results", results.size());
+        return results;
     }
 
     // ══════════════════════════════════════════════════════════
-    //  4. DELETE CONTRACT VECTORS
+    //  4. DELETE — DELETE /api/ai/contract/{id}
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Tell the Python service to remove all FAISS vectors for a contract.
-     * Called when a contract is deleted from MongoDB.
-     *
-     * TODO: call this from ContractService.deleteContract()
+     * Tell Python to remove all FAISS vectors for a contract.
+     * Called by ContractService.deleteContract().
+     * Non-fatal — a warning is logged if the call fails.
      */
     public void deleteContractVectors(String contractId) {
         if (!aiServiceEnabled) {
-            log.warn("TODO [AI SERVICE DISABLED] — deleteContractVectors() skipped for contractId={}", contractId);
+            log.warn("[AI DISABLED] deleteContractVectors skipped for contractId={}", contractId);
             return;
         }
         try {
@@ -267,63 +209,111 @@ public class AiIntegrationService {
                     .toBodilessEntity()
                     .timeout(Duration.ofSeconds(10))
                     .block();
-            log.info("FAISS vectors deleted for contractId={}", contractId);
-        } catch (WebClientResponseException e) {
-            log.warn("Could not delete vectors for contractId={}: {}", contractId, e.getMessage());
+            log.info("[delete] FAISS vectors removed for contractId={}", contractId);
+        } catch (Exception e) {
+            log.warn("[delete] Could not remove vectors for contractId={}: {}",
+                    contractId, simplifyError(e));
         }
     }
 
-    // ── Private helpers ─────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    //  INTERNAL — retry loop + parsing helpers
+    // ══════════════════════════════════════════════════════════
 
     /**
-     * Parse the JSON response from POST /api/ai/analyze into an AnalysisResult.
+     * POST to the Python AI service with automatic retry on transient errors.
+     * Throws {@link AiServiceException} after all retries are exhausted.
      */
-    private AnalysisResult parseAnalysisResponse(String contractId,
-                                                   String contractFileName,
-                                                   JsonNode response) {
-        if (response == null) {
-            throw new RuntimeException("Null response from AI analysis endpoint");
+    private JsonNode callWithRetry(String uri, Object body, String operation) {
+        Exception lastException = null;
+
+        for (int attempt = 1; attempt <= maxRetries + 1; attempt++) {
+            try {
+                return aiWebClient.post()
+                        .uri(uri)
+                        .bodyValue(body)
+                        .retrieve()
+                        .onStatus(
+                                status -> status.is4xxClientError(),
+                                resp -> resp.bodyToMono(String.class).map(errBody ->
+                                        new AiServiceException("[" + operation + "] Python returned "
+                                                + resp.statusCode().value() + ": " + errBody))
+                        )
+                        .onStatus(
+                                status -> status.is5xxServerError(),
+                                resp -> resp.bodyToMono(String.class).map(errBody ->
+                                        new AiServiceException("[" + operation + "] Python server error "
+                                                + resp.statusCode().value() + ": " + errBody))
+                        )
+                        .bodyToMono(JsonNode.class)
+                        .timeout(Duration.ofSeconds(timeoutSeconds))
+                        .block();
+
+            } catch (AiServiceException e) {
+                // 4xx / 5xx — do not retry
+                throw e;
+            } catch (WebClientResponseException e) {
+                throw new AiServiceException("[" + operation + "] HTTP " + e.getStatusCode()
+                        + ": " + e.getResponseBodyAsString(), e);
+            } catch (Exception e) {
+                lastException = e;
+                String simplified = simplifyError(e);
+                if (attempt <= maxRetries) {
+                    log.warn("[{}] Attempt {}/{} failed: {}. Retrying in {}ms…",
+                            operation, attempt, maxRetries + 1, simplified, retryDelayMs);
+                    try { Thread.sleep(retryDelayMs); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                } else {
+                    log.error("[{}] All {} attempts failed. Last error: {}",
+                            operation, maxRetries + 1, simplified);
+                }
+            }
         }
 
-        double riskScore = response.path("riskScore").asDouble(0.0);
+        throw new AiServiceException(
+                "[" + operation + "] Python AI service unreachable after "
+                        + (maxRetries + 1) + " attempts. " + simplifyError(lastException),
+                lastException);
+    }
+
+    private AnalysisResult parseAnalysisResponse(String contractId,
+                                                 String contractFileName,
+                                                 JsonNode resp) {
+        if (resp == null)
+            throw new AiServiceException("[analyze] Null response body from Python");
+
+        double riskScore = Math.max(0.0, Math.min(10.0, resp.path("riskScore").asDouble(0.0)));
 
         RiskReport riskReport = RiskReport.builder()
-                .penaltyClauses(jsonArrayToList(response.path("penaltyClauses")))
-                .terminationRisks(jsonArrayToList(response.path("terminationRisks")))
-                .liabilityIssues(jsonArrayToList(response.path("liabilityIssues")))
-                .otherFlags(jsonArrayToList(response.path("otherFlags")))
+                .penaltyClauses(jsonArrayToList(resp.path("penaltyClauses")))
+                .terminationRisks(jsonArrayToList(resp.path("terminationRisks")))
+                .liabilityIssues(jsonArrayToList(resp.path("liabilityIssues")))
+                .otherFlags(jsonArrayToList(resp.path("otherFlags")))
                 .build();
 
         return AnalysisResult.builder()
                 .contractId(contractId)
                 .contractFileName(contractFileName)
-                .summary(response.path("summary").asText("No summary available."))
+                .summary(resp.path("summary").asText("No summary returned."))
                 .riskScore(riskScore)
                 .riskLevel(AnalysisResult.levelFromScore(riskScore))
                 .riskReport(riskReport)
-                .chunksUsed(response.path("chunksUsed").asInt(0))
+                .chunksUsed(resp.path("chunksUsed").asInt(0))
                 .analyzedAt(LocalDateTime.now())
                 .build();
     }
 
-    /**
-     * Build a stub AnalysisResult used when the AI service is disabled.
-     * The summary field clearly communicates the TODO status to the UI.
-     */
     private AnalysisResult buildStubResult(String contractId,
-                                            String contractFileName,
-                                            int chunkCount) {
+                                           String contractFileName,
+                                           int chunkCount) {
         return AnalysisResult.builder()
                 .contractId(contractId)
                 .contractFileName(contractFileName)
-                .summary("⚠ AI Service Not Connected\n\n"
-                        + "The document was successfully uploaded, extracted into "
-                        + chunkCount + " chunks, and is ready for analysis.\n\n"
-                        + "To activate AI summarization and risk detection:\n"
-                        + "1. Start the Python AI service (FastAPI on port 5000)\n"
-                        + "2. Set app.ai.service.enabled=true in application.properties\n"
-                        + "3. Re-trigger analysis via the 'Analyze' button\n\n"
-                        + "TODO: Python AI service — POST /api/ai/analyze")
+                .summary("⚠ AI Service Disabled\n\n"
+                        + "Document uploaded and split into " + chunkCount + " chunks.\n"
+                        + "Set app.ai.service.enabled=true and start the Python AI service "
+                        + "on port 5000 to activate analysis.")
                 .riskScore(0.0)
                 .riskLevel(AnalysisResult.RiskLevel.LOW)
                 .riskReport(RiskReport.builder().build())
@@ -332,14 +322,29 @@ public class AiIntegrationService {
                 .build();
     }
 
-    /** Convert a JsonNode array to a Java List<String> */
-    private List<String> jsonArrayToList(JsonNode arrayNode) {
-        List<String> list = new java.util.ArrayList<>();
-        if (arrayNode != null && arrayNode.isArray()) {
-            for (JsonNode item : arrayNode) {
-                list.add(item.asText());
-            }
+    private List<String> jsonArrayToList(JsonNode node) {
+        List<String> list = new ArrayList<>();
+        if (node != null && node.isArray()) {
+            for (JsonNode item : node) { if (!item.asText().isBlank()) list.add(item.asText()); }
         }
         return list;
+    }
+
+    private String simplifyError(Exception e) {
+        if (e == null) return "null";
+        String msg = e.getMessage();
+        if (msg == null) return e.getClass().getSimpleName();
+        if (msg.contains("Connection refused"))
+            return "Connection refused — is the Python AI service running on port 5000?";
+        if (msg.contains("timeout") || msg.contains("Timeout"))
+            return "Request timed out — Ollama LLM may be loading a model";
+        return msg.length() > 200 ? msg.substring(0, 200) + "…" : msg;
+    }
+
+    // ── Custom exception ─────────────────────────────────────────────────────
+
+    public static class AiServiceException extends RuntimeException {
+        public AiServiceException(String message) { super(message); }
+        public AiServiceException(String message, Throwable cause) { super(message, cause); }
     }
 }

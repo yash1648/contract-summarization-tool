@@ -38,5 +38,13 @@ mongo-data
 uploads
 contract_sample
 CLAUDE.md
-
-
+.env
+.venv
+data
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/

@@ -3,78 +3,141 @@
       th:replace="~{layout :: layout('Dashboard', ~{::content})}">
 <body>
 <th:block th:fragment="content">
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
-        <i class="bi bi-speedometer2 me-2" style="color:#00b4d8;"></i>Dashboard
-    </h2>
-    <a th:href="@{/contracts/upload}" class="btn btn-primary">
-        <i class="bi bi-upload me-1"></i>Upload New Contract
-    </a>
-</div>
 
-<!-- Stats row -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card stat-card h-100">
-            <div class="card-body">
-                <div class="text-muted small">Total Contracts</div>
-                <div class="display-6 fw-bold" th:text="${totalContracts}">0</div>
-            </div>
-        </div>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
+            <i class="bi bi-speedometer2 me-2" style="color:#00b4d8;"></i>Dashboard
+        </h2>
+        <a th:href="@{/contracts/upload}" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Upload New Contract
+        </a>
     </div>
-    <div class="col-md-3">
-        <div class="card stat-card h-100" style="border-color:#198754;">
-            <div class="card-body">
-                <div class="text-muted small">Completed</div>
-                <div class="display-6 fw-bold text-success" th:text="${completedContracts}">0</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card stat-card h-100" style="border-color:#fd7e14;">
-            <div class="card-body">
-                <div class="text-muted small">Pending / Processing</div>
-                <div class="display-6 fw-bold text-warning" th:text="${pendingContracts}">0</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card stat-card h-100" style="border-color:#dc3545;">
-            <div class="card-body">
-                <div class="text-muted small">High Risk</div>
-                <div class="display-6 fw-bold text-danger" th:text="${highRiskContracts}">0</div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- TODO banner -->
-<div class="todo-banner mb-4">
-    <i class="bi bi-cpu me-2"></i>
-    <strong>AI Service Status:</strong>
-    Python AI microservice (FastAPI + FAISS + LLM) is not yet connected.
-    Contracts are being extracted and chunked successfully.
-    Set <code>app.ai.service.enabled=true</code> in
-    <code>application.properties</code> once the Python service is running
-    to activate embeddings, semantic search, and AI summarization.
-    <br/><small class="text-muted mt-1 d-block">
-        TODO endpoints: POST /api/ai/embed &nbsp;|&nbsp; POST /api/ai/analyze &nbsp;|&nbsp; POST /api/ai/search
-    </small>
-</div>
-
-<div class="row g-4">
-    <!-- Recent Contracts -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header fw-semibold">
-                <i class="bi bi-folder2-open me-2"></i>Recent Contracts
+    <!-- ── Stats row ───────────────────────────────────────────── -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card stat-card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Total Contracts</div>
+                    <div class="display-6 fw-bold" th:text="${totalContracts}">0</div>
+                </div>
             </div>
-            <div class="card-body p-0">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card h-100" style="border-color:#198754;">
+                <div class="card-body">
+                    <div class="text-muted small">Completed</div>
+                    <div class="display-6 fw-bold text-success" th:text="${completedContracts}">0</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card h-100" style="border-color:#fd7e14;">
+                <div class="card-body">
+                    <div class="text-muted small">Pending / Processing</div>
+                    <div class="display-6 fw-bold text-warning" th:text="${pendingContracts}">0</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stat-card h-100" style="border-color:#dc3545;">
+                <div class="card-body">
+                    <div class="text-muted small">High Risk</div>
+                    <div class="display-6 fw-bold text-danger" th:text="${highRiskContracts}">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Live AI Service Status Card ────────────────────────── -->
+    <div class="card mb-4 shadow-sm"
+         th:style="${aiStatus.up ? 'border-left: 4px solid #198754;' :
+                (aiStatus.disabled ? 'border-left: 4px solid #6c757d;' :
+                                     'border-left: 4px solid #dc3545;')}">
+        <div class="card-body py-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+
+                <!-- Left: status icon + label -->
+                <div class="d-flex align-items-center gap-3">
+                    <div>
+                        <!-- Green dot when fully operational -->
+                        <span th:if="${aiStatus.fullyOperational}"
+                              class="badge bg-success fs-6 px-3 py-2">
+                        <i class="bi bi-cpu-fill me-1"></i> AI Service ONLINE
+                    </span>
+                        <!-- Yellow when service up but Ollama not ready -->
+                        <span th:if="${aiStatus.up and !aiStatus.fullyOperational}"
+                              class="badge bg-warning text-dark fs-6 px-3 py-2">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i> AI Online — Ollama Loading
+                    </span>
+                        <!-- Red when service down -->
+                        <span th:if="${!aiStatus.up and !aiStatus.disabled}"
+                              class="badge bg-danger fs-6 px-3 py-2">
+                        <i class="bi bi-x-circle-fill me-1"></i> AI Service OFFLINE
+                    </span>
+                        <!-- Grey when disabled -->
+                        <span th:if="${aiStatus.disabled}"
+                              class="badge bg-secondary fs-6 px-3 py-2">
+                        <i class="bi bi-dash-circle me-1"></i> AI Service Disabled
+                    </span>
+                    </div>
+
+                    <!-- Detail pills when online -->
+                    <div th:if="${aiStatus.up}" class="d-flex gap-2 flex-wrap">
+                    <span class="badge bg-light text-dark border">
+                        <i class="bi bi-layers me-1"></i>
+                        Model: <strong th:text="${aiStatus.ollamaModel}">llama3</strong>
+                    </span>
+                        <span class="badge bg-light text-dark border">
+                        <i class="bi bi-grid-3x3-gap me-1"></i>
+                        Embedder: <strong th:text="${aiStatus.embeddingModel}">all-MiniLM-L6-v2</strong>
+                    </span>
+                        <span class="badge bg-light text-dark border">
+                        <i class="bi bi-database me-1"></i>
+                        FAISS Indexes: <strong th:text="${aiStatus.totalIndexes}">0</strong>
+                    </span>
+                        <span th:if="${aiStatus.ollamaReachable}" class="badge bg-success">
+                        <i class="bi bi-check2-circle me-1"></i> Ollama Ready
+                    </span>
+                        <span th:unless="${aiStatus.ollamaReachable}" class="badge bg-warning text-dark">
+                        <i class="bi bi-hourglass-split me-1"></i> Ollama Loading…
+                    </span>
+                    </div>
+
+                    <!-- Error message when offline -->
+                    <small th:if="${!aiStatus.up}" class="text-muted"
+                           th:text="${aiStatus.errorMessage}">error</small>
+                </div>
+
+                <!-- Right: refresh link -->
+                <a href="/dashboard" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </a>
+            </div>
+
+            <!-- Offline instructions -->
+            <div th:if="${!aiStatus.up and !aiStatus.disabled}" class="mt-2 pt-2 border-top small text-muted">
+                Start the Python AI service:
+                <code class="ms-1">cd ai-service &amp;&amp; ./scripts/setup.sh</code>
+                — then set <code>app.ai.service.enabled=true</code> in
+                <code>application.properties</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Recent tables ────────────────────────────────────────── -->
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header fw-semibold">
+                    <i class="bi bi-folder2-open me-2"></i>Recent Contracts
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
                         <tr><th>File</th><th>Chunks</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>
+                        </thead>
+                        <tbody>
                         <tr th:if="${recentContracts.empty}">
                             <td colspan="3" class="text-center text-muted py-3">No contracts yet</td>
                         </tr>
@@ -90,27 +153,26 @@
                                       th:text="${c.status}">UPLOADED</span>
                             </td>
                         </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card-footer text-end">
-                <a th:href="@{/contracts}" class="btn btn-sm btn-outline-primary">View All</a>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer text-end">
+                    <a th:href="@{/contracts}" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Recent Analyses -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header fw-semibold">
-                <i class="bi bi-bar-chart-line me-2"></i>Recent Analyses
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header fw-semibold">
+                    <i class="bi bi-bar-chart-line me-2"></i>Recent Analyses
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
                         <tr><th>File</th><th>Risk Score</th><th>Level</th></tr>
-                    </thead>
-                    <tbody>
+                        </thead>
+                        <tbody>
                         <tr th:if="${recentAnalyses.empty}">
                             <td colspan="3" class="text-center text-muted py-3">No analyses yet</td>
                         </tr>
@@ -122,19 +184,21 @@
                             <td th:text="${#numbers.formatDecimal(a.riskScore, 1, 1)}">0.0</td>
                             <td>
                                 <span class="badge"
-                                      th:classappend="${a.riskScore <= 3.3 ? 'badge-low' : (a.riskScore <= 6.6 ? 'badge-medium' : 'badge-high')}"
+                                      th:classappend="${a.riskScore <= 3.3 ? 'badge-low' :
+                                                        (a.riskScore <= 6.6 ? 'badge-medium' : 'badge-high')}"
                                       th:text="${a.riskLevel}">LOW</span>
                             </td>
                         </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="card-footer text-end">
-                <a th:href="@{/analysis}" class="btn btn-sm btn-outline-primary">View All</a>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer text-end">
+                    <a th:href="@{/analysis}" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
             </div>
         </div>
     </div>
-</div>
+
 </th:block>
 </body>
 </html>

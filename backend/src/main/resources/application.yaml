@@ -24,6 +24,7 @@ logging:
     root: INFO
     com.grim: DEBUG
     org.springframework.data.mongodb: DEBUG
+    org.springframework.web.reactive.function.client: WARN
 
 # File type
 
@@ -42,8 +43,11 @@ app:
   ai:
     service:
         url: http://localhost:5000
-        enabled: false
-        timeout-second: 30
+        enabled: true
+        timeout-seconds: 30
+        health-timeout-seconds: 5
+        max-retries: 2
+        retry-delay-ms: 1000
 
 
 

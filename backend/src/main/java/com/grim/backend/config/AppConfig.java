@@ -1,57 +1,97 @@
 package com.grim.backend.config;
 
-import jakarta.annotation.PostConstruct;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+import reactor.netty.http.client.HttpClient;
+import lombok.extern.slf4j.Slf4j;
 
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Application-level beans:
- *   - WebClient for calling the Python AI microservice
- *   - Upload directory initialisation
+ * Application configuration.
+ *
+ * Configures a production-grade WebClient for the Python AI service:
+ *   - Connect timeout: 10 s
+ *   - Read timeout: driven by app.ai.service.timeout-seconds (default 120 s)
+ *   - Request/response logging at DEBUG level
+ *   - 10 MB codec buffer (LLM summaries can be large)
  */
+@Slf4j
 @Configuration
 public class AppConfig {
 
     @Value("${app.ai.service.url}")
     private String aiServiceUrl;
 
+    @Value("${app.ai.service.timeout-seconds:120}")
+    private int aiTimeoutSeconds;
+
     @Value("${app.upload.dir}")
     private String uploadDir;
 
-    /**
-     * Reactive WebClient pre-configured with the Python AI service base URL.
-     * Used by AiIntegrationService to POST contract chunks and receive results.
-     *
-     * TODO: When the Python service is ready, ensure app.ai.service.url is
-     *       set correctly in application.properties and flip
-     *       app.ai.service.enabled=true.
-     */
     @Bean
+    @Primary
     public WebClient aiWebClient() {
+        // Netty HTTP client with explicit connection + read timeouts
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
+                .responseTimeout(Duration.ofSeconds(aiTimeoutSeconds))
+                .doOnConnected(conn -> conn
+                        .addHandlerLast(new ReadTimeoutHandler(aiTimeoutSeconds, TimeUnit.SECONDS))
+                        .addHandlerLast(new WriteTimeoutHandler(30, TimeUnit.SECONDS)));
+
         return WebClient.builder()
                 .baseUrl(aiServiceUrl)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .defaultHeader("Content-Type", "application/json")
-                .codecs(configurer ->
-                        configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10 MB
+                .defaultHeader("Accept", "application/json")
+                .codecs(cfg -> cfg.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                .filter(logRequest())
+                .filter(logResponse())
                 .build();
     }
 
-    /**
-     * Ensure the upload directory exists on application startup.
-     * Creates the directory (and any missing parents) if it doesn't exist.
-     */
+    /** Log outgoing request method + URI at DEBUG level. */
+    private ExchangeFilterFunction logRequest() {
+        return ExchangeFilterFunction.ofRequestProcessor(req -> {
+            log.debug("AI → {} {}", req.method(), req.url());
+            return Mono.just(req);
+        });
+    }
+
+    /** Log response status code at DEBUG (WARN on 4xx/5xx). */
+    private ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(resp -> {
+            if (resp.statusCode().isError()) {
+                log.warn("AI ← {} {}", resp.statusCode().value(), resp.statusCode());
+            } else {
+                log.debug("AI ← {}", resp.statusCode().value());
+            }
+            return Mono.just(resp);
+        });
+    }
+
     @PostConstruct
     public void initUploadDirectory() throws IOException {
         Path uploadPath = Paths.get(uploadDir).toAbsolutePath();
         if (!Files.exists(uploadPath)) {
             Files.createDirectories(uploadPath);
+            log.info("Created upload directory: {}", uploadPath);
         }
     }
 }
