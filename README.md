@@ -1,8 +1,5 @@
 # AI Contract Summarization System
 
-[![Java CI](https://github.com/yourorg/ai-contract-system/actions/workflows/java.yml/badge.svg)](https://github.com/yourorg/ai-contract-system/actions/workflows/java.yml)
-[![Python CI](https://github.com/yourorg/ai-contract-system/actions/workflows/python.yml/badge.svg)](https://github.com/yourorg/ai-contract-system/actions/workflows/python.yml)
-
 > Intelligent contract analysis using Retrieval-Augmented Generation (RAG) with Spring Boot and FastAPI
 
 ## 📊 Overview
