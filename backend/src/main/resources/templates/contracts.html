@@ -4,8 +4,8 @@
 <body>
 <th:block th:fragment="content">
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
-        <i class="bi bi-folder2-open me-2" style="color:#00b4d8;"></i>All Contracts
+    <h2 class="fw-bold mb-0 text-white">
+        <i class="bi bi-folder2-open me-2" style="color:var(--accent);"></i>All Contracts
         <span class="badge bg-secondary ms-2 fs-6" th:text="${totalCount}">0</span>
     </h2>
     <a th:href="@{/contracts/upload}" class="btn btn-primary">
@@ -16,7 +16,7 @@
 <div class="card shadow-sm">
     <div class="card-body p-0">
         <table class="table table-hover align-middle mb-0">
-            <thead class="table-dark">
+            <thead>
                 <tr>
                     <th>File Name</th>
                     <th>Type</th>
@@ -61,7 +61,7 @@
                     <td class="text-end">
                         <div class="btn-group btn-group-sm">
                             <!-- Analyze button (only if not yet completed) -->
-                            <form th:if="${contract.status != T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+                            <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
                                   th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
                                   class="d-inline">
                                 <button type="submit" class="btn btn-outline-success"
@@ -70,7 +70,7 @@
                                 </button>
                             </form>
                             <!-- View results (if completed) -->
-                            <a th:if="${contract.status == T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+                            <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
                                th:href="@{/analysis/{id}/results(id=${contract.id})}"
                                class="btn btn-outline-primary" title="View Results">
                                 <i class="bi bi-eye"></i> Results

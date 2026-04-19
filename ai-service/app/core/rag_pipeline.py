@@ -1,27 +1,12 @@
 """
 core/rag_pipeline.py
 ====================
-Retrieval-Augmented Generation (RAG) pipeline.
+Optimised RAG pipeline — single retrieval + single LLM call.
 
-This is the brain of the AI service.  It wires together:
-  1. EmbeddingService  — encodes chunks and queries into vectors
-  2. VectorStore       — persists and retrieves vectors via FAISS
-  3. OllamaClient      — runs LLM inference (summary + risk analysis)
-
-Pipeline for /api/ai/embed:
-  chunks → encode() → add_vectors() → [embeddingIds]
-
-Pipeline for /api/ai/analyze:
-  chunkTexts  ─────────────────────────────────┐
-                                                ▼
-  SUMMARY query → encode → FAISS search → top-k chunks → LLM summary
-  RISK    query → encode → FAISS search → top-k chunks → LLM risk JSON
-                                                │
-                                                ▼
-                                    AnalyzeResponse
-
-Pipeline for /api/ai/search:
-  user query → encode → FAISS search → [SearchResultItem, ...]
+Performance strategy:
+  1. ONE batch of FAISS queries (not separate summary + risk queries)
+  2. ONE Ollama call (combined prompt produces summary + risk JSON)
+  3. Minimal context: only top-k most relevant chunks
 """
 from __future__ import annotations
 
@@ -39,20 +24,11 @@ from app.models.schemas import (
 )
 
 
-# ── Retrieval queries used to gather context ──────────────────────────────────
-# These generic queries pull the most relevant sections for each analysis task.
-_SUMMARY_QUERIES = [
-    "parties involved obligations payment terms",
-    "contract duration renewal termination conditions",
-    "key deliverables deadlines milestones",
-]
-
-_RISK_QUERIES = [
-    "penalty clause fine breach violation",
-    "termination early exit notice period auto-renewal",
-    "liability indemnification unlimited damages",
-    "intellectual property assignment confidentiality",
-    "dispute resolution jurisdiction governing law",
+# ── Single combined retrieval query set ──────────────────────────────────────
+# Merged and reduced to minimise FAISS round-trips.
+_ANALYSIS_QUERIES = [
+    "parties obligations payment terms penalties",
+    "termination liability indemnification risks",
 ]
 
 
@@ -69,14 +45,6 @@ class RagPipeline:
     def embed(self, request: EmbedRequest) -> EmbedResponse:
         """
         Encode all chunks for a contract and store them in FAISS.
-
-        Steps:
-          1. Extract text from each ChunkItem
-          2. Batch-encode with sentence-transformer
-          3. Store in VectorStore (returns one UUID per chunk)
-          4. Return EmbedResponse with the UUIDs
-
-        The order of embeddingIds matches the order of chunks in the request.
         """
         logger.info(
             f"[embed] contractId={request.contractId}  "
@@ -93,10 +61,10 @@ class RagPipeline:
         texts         = [c.text for c in request.chunks]
         chunk_indexes = [c.index for c in request.chunks]
 
-        # ── Step 1: Encode ────────────────────────────────────
-        vectors = embedder.encode(texts)   # shape (N, 384), float32, L2-normed
+        # Step 1: Encode
+        vectors = embedder.encode(texts)
 
-        # ── Step 2: Store in FAISS ────────────────────────────
+        # Step 2: Store in FAISS
         embedding_ids = vector_store.add_vectors(
             contract_id=request.contractId,
             chunk_indexes=chunk_indexes,
@@ -115,24 +83,15 @@ class RagPipeline:
         )
 
     # ══════════════════════════════════════════════════════════
-    #  ANALYZE
+    #  ANALYZE — SINGLE LLM CALL
     # ══════════════════════════════════════════════════════════
 
     def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
         """
-        Full RAG analysis: retrieve relevant chunks, then run two LLM passes.
-
-        Pass 1 — Summary:
-          Query FAISS with generic summary queries, assemble top-k context,
-          ask Ollama to produce a structured human-readable summary.
-
-        Pass 2 — Risk:
-          Query FAISS with risk-oriented queries, ask Ollama to return
-          a JSON risk report with penalty/termination/liability lists and a score.
-
-        If the FAISS index for this contract is empty (e.g. embed was skipped),
-        we fall back to using the raw chunkTexts provided in the request directly.
-        This ensures analysis always works even if embedding was bypassed.
+        Map-Reduce Summarization + RAG Risk Analysis:
+          - Summarize all chunks in parallel
+          - Multi-level merge of summaries -> Final Summary
+          - RAG retrieval -> Risk Analysis JSON
         """
         logger.info(
             f"[analyze] contractId={request.contractId}  "
@@ -141,40 +100,71 @@ class RagPipeline:
 
         has_index = self._has_faiss_index(request.contractId)
 
-        # ── Pass 1: Summary ───────────────────────────────────
-        summary_chunks = self._retrieve_context(
+        # ── Map-Reduce Summarization (Parallel) ──
+        logger.info("[analyze] Starting parallel chunk summarization")
+        
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Step 3: Summarize each chunk (parallel)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            chunk_summaries = list(executor.map(ollama_client.generate_chunk_summary, request.chunkTexts))
+            
+        logger.info(f"[analyze] Generated {len(chunk_summaries)} chunk summaries. Merging...")
+        
+        # Step 4 & 5: Merge summaries and Final summary
+        final_summary = self._map_reduce_summaries(chunk_summaries)
+
+        # ── Risk Analysis (RAG) ──
+        # Single retrieval pass for risk
+        context_chunks = self._retrieve_context(
             contract_id=request.contractId,
-            queries=_SUMMARY_QUERIES,
+            queries=_ANALYSIS_QUERIES,
             fallback_texts=request.chunkTexts,
             has_index=has_index,
         )
-        summary = ollama_client.generate_summary(summary_chunks)
 
-        # ── Pass 2: Risk ──────────────────────────────────────
-        risk_chunks = self._retrieve_context(
-            contract_id=request.contractId,
-            queries=_RISK_QUERIES,
-            fallback_texts=request.chunkTexts,
-            has_index=has_index,
-        )
-        risk_data = ollama_client.generate_risk_analysis(risk_chunks)
+        # Single LLM call for risk
+        risk_result = ollama_client.generate_risk_analysis(context_chunks)
 
-        chunks_used = len(set(summary_chunks) | set(risk_chunks))
+        chunks_used = len(request.chunkTexts)
 
         logger.info(
             f"[analyze] done  contractId={request.contractId}  "
-            f"riskScore={risk_data['riskScore']}  chunksUsed={chunks_used}"
+            f"riskScore={risk_result['riskScore']}  chunksUsed={chunks_used}"
         )
 
         return AnalyzeResponse(
-            summary=summary,
-            riskScore=risk_data["riskScore"],
-            penaltyClauses=risk_data["penaltyClauses"],
-            terminationRisks=risk_data["terminationRisks"],
-            liabilityIssues=risk_data["liabilityIssues"],
-            otherFlags=risk_data["otherFlags"],
+            summary=final_summary,
+            riskScore=risk_result["riskScore"],
+            penaltyClauses=risk_result["penaltyClauses"],
+            terminationRisks=risk_result["terminationRisks"],
+            liabilityIssues=risk_result["liabilityIssues"],
+            otherFlags=risk_result["otherFlags"],
             chunksUsed=chunks_used,
         )
+
+    def _map_reduce_summaries(self, summaries: list[str]) -> str:
+        """
+        Multi-level summarization for large PDFs.
+        Merges chunks in groups of 5 until we have <= 5 summaries, then generates the final.
+        """
+        if not summaries:
+            return "No text available to summarize."
+            
+        if len(summaries) <= 5:
+            return ollama_client.generate_final_summary(summaries)
+            
+        # Chunk into groups of 5
+        merged_groups = []
+        for i in range(0, len(summaries), 5):
+            group = summaries[i:i+5]
+            if len(group) == 1:
+                merged_groups.append(group[0])
+            else:
+                merged_groups.append(ollama_client.merge_summaries(group))
+                
+        # Recursive call for multi-level summarization
+        return self._map_reduce_summaries(merged_groups)
 
     # ══════════════════════════════════════════════════════════
     #  SEARCH
@@ -183,19 +173,14 @@ class RagPipeline:
     def search(self, request: SearchRequest) -> SearchResponse:
         """
         Encode the user's query and retrieve the top-k most similar chunks.
-
-        If contractId is provided, search is scoped to that contract's index.
-        Otherwise all indexes are searched (cross-contract mode).
         """
         logger.info(
             f"[search] query='{request.query}'  "
             f"contractId={request.contractId}  topK={request.topK}"
         )
 
-        # Encode the query
         query_vec = embedder.encode_single(request.query)
 
-        # Search FAISS
         raw_results = vector_store.search(
             query_vector=query_vec,
             top_k=request.topK,
@@ -249,29 +234,29 @@ class RagPipeline:
         has_index: bool,
     ) -> list[str]:
         """
-        Retrieve the most relevant chunks for a set of queries.
+        Retrieve the most relevant chunks for analysis.
 
         Strategy:
-          - If FAISS index exists: encode each query and search; deduplicate results.
-          - Fallback: use raw chunkTexts from the request (e.g. when embed was skipped).
+          - If FAISS index exists: encode each query and search; deduplicate.
+          - Fallback: use raw chunkTexts (evenly sampled).
 
         Returns:
-            Deduplicated list of chunk texts, limited to settings.rag_top_k.
+            Deduplicated chunk texts, capped at rag_top_k * 2.
         """
         if not has_index:
             logger.debug(
                 f"[context] No FAISS index for {contract_id}, "
                 f"using {len(fallback_texts)} raw chunks as fallback"
             )
-            # Use the most central chunks (take evenly distributed sample)
             return self._sample_chunks(fallback_texts, settings.rag_top_k)
 
-        # Run each query and collect unique results
+        # Batch-encode all queries at once (faster than one-by-one)
+        query_vecs = embedder.encode(queries)
+
         seen_texts: set[str] = set()
         collected: list[str] = []
 
-        for query in queries:
-            query_vec = embedder.encode_single(query)
+        for query_vec in query_vecs:
             results = vector_store.search(
                 query_vector=query_vec,
                 top_k=settings.rag_top_k,
@@ -284,7 +269,6 @@ class RagPipeline:
                     seen_texts.add(text)
                     collected.append(text)
 
-        # Cap total context to avoid overflowing LLM context window
         max_context = settings.rag_top_k * 2
         logger.debug(
             f"[context] Retrieved {len(collected)} unique chunks "

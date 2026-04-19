@@ -10,6 +10,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -25,17 +26,17 @@ import java.io.InputStream;
 public class TextExtractionService {
 
     /**
-     * Extract text from an uploaded MultipartFile.
+     * Extract text from file bytes.
      *
-     * @param file     the uploaded file
-     * @param mimeType the MIME type detected at upload time
+     * @param fileBytes the file content as bytes
+     * @param mimeType  the MIME type detected at upload time
      * @return cleaned plain-text content of the document
      * @throws FileProcessingException if the file cannot be parsed
      */
-    public String extractText(MultipartFile file, String mimeType) {
-        log.info("Extracting text from file: {} (type: {})", file.getOriginalFilename(), mimeType);
+    public String extractText(byte[] fileBytes, String mimeType) {
+        log.info("Extracting text from bytes (type: {})", mimeType);
 
-        try (InputStream inputStream = file.getInputStream()) {
+        try (InputStream inputStream = new ByteArrayInputStream(fileBytes)) {
             return switch (mimeType) {
                 case "application/pdf" -> extractFromPdf(inputStream);
                 case "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -44,7 +45,7 @@ public class TextExtractionService {
                         "Unsupported file type: " + mimeType + ". Only PDF and DOCX are accepted.");
             };
         } catch (IOException e) {
-            log.error("Failed to extract text from {}: {}", file.getOriginalFilename(), e.getMessage());
+            log.error("Failed to extract text from bytes: {}", e.getMessage());
             throw new FileProcessingException("Could not read file: " + e.getMessage(), e);
         }
     }

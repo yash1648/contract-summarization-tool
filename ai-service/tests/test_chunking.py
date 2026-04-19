@@ -10,16 +10,17 @@ from unittest.mock import patch
 from app.core.vector_store import VectorStore
 
 
+from app.config import settings
+
 def make_store(tmp_path):
     """Create a fresh VectorStore backed by a temp directory."""
-    with patch("app.core.vector_store.settings") as s:
-        s.faiss_index_dir = tmp_path
-        s.embedding_dimension = 4   # tiny dim for tests
-        store = VectorStore.__new__(VectorStore)
-        store._indexes = {}
-        store._lock = __import__("threading").Lock()
-        store._index_dir = tmp_path
-        return store
+    settings.faiss_index_dir = tmp_path
+    settings.embedding_dimension = 4   # tiny dim for tests
+    store = VectorStore.__new__(VectorStore)
+    store._indexes = {}
+    store._lock = __import__("threading").Lock()
+    store._index_dir = tmp_path
+    return store
 
 
 def random_vecs(n, dim=4):

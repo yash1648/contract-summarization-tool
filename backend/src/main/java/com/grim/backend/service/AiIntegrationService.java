@@ -1,5 +1,6 @@
 package com.grim.backend.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.grim.backend.model.AnalysisResult;
 import com.grim.backend.model.ContractChunk;
 import com.grim.backend.model.RiskReport;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -229,44 +231,45 @@ public class AiIntegrationService {
 
         for (int attempt = 1; attempt <= maxRetries + 1; attempt++) {
             try {
-                return aiWebClient.post()
+                String response = aiWebClient.post()
                         .uri(uri)
                         .bodyValue(body)
                         .retrieve()
                         .onStatus(
                                 status -> status.is4xxClientError(),
-                                resp -> resp.bodyToMono(String.class).map(errBody ->
-                                        new AiServiceException("[" + operation + "] Python returned "
-                                                + resp.statusCode().value() + ": " + errBody))
+                                resp -> resp.bodyToMono(String.class).flatMap(errBody ->
+                                        Mono.error(new AiServiceException("[" + operation + "] Python returned "
+                                                + resp.statusCode().value() + ": " + errBody)))
                         )
                         .onStatus(
                                 status -> status.is5xxServerError(),
-                                resp -> resp.bodyToMono(String.class).map(errBody ->
-                                        new AiServiceException("[" + operation + "] Python server error "
-                                                + resp.statusCode().value() + ": " + errBody))
+                                resp -> resp.bodyToMono(String.class).flatMap(errBody ->
+                                        Mono.error(new AiServiceException("[" + operation + "] Python server error "
+                                                + resp.statusCode().value() + ": " + errBody)))
                         )
-                        .bodyToMono(JsonNode.class)
+                        .bodyToMono(String.class)
                         .timeout(Duration.ofSeconds(timeoutSeconds))
                         .block();
 
-            } catch (AiServiceException e) {
-                // 4xx / 5xx — do not retry
-                throw e;
-            } catch (WebClientResponseException e) {
-                throw new AiServiceException("[" + operation + "] HTTP " + e.getStatusCode()
-                        + ": " + e.getResponseBodyAsString(), e);
+                // 🔥 ADD THIS (CRITICAL)
+                log.info("[{}] RAW RESPONSE: {}", operation, response);
+
+                // 🔥 Parse manually
+                ObjectMapper mapper = new ObjectMapper();
+                return mapper.readTree(response);
+
             } catch (Exception e) {
                 lastException = e;
                 String simplified = simplifyError(e);
+
                 if (attempt <= maxRetries) {
-                    log.warn("[{}] Attempt {}/{} failed: {}. Retrying in {}ms…",
-                            operation, attempt, maxRetries + 1, simplified, retryDelayMs);
+                    log.warn("[{}] Attempt {}/{} failed: {}. Retrying...",
+                            operation, attempt, maxRetries + 1, simplified);
                     try { Thread.sleep(retryDelayMs); } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                     }
                 } else {
-                    log.error("[{}] All {} attempts failed. Last error: {}",
-                            operation, maxRetries + 1, simplified);
+                    log.error("[{}] All attempts failed. Last error: {}", operation, simplified);
                 }
             }
         }

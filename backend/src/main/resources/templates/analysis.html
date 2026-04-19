@@ -10,8 +10,8 @@
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
-            <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
-                <i class="bi bi-bar-chart-line me-2" style="color:#00b4d8;"></i>Analysis Results
+            <h2 class="fw-bold mb-0 text-white">
+                <i class="bi bi-bar-chart-line me-2" style="color:var(--accent);"></i>Analysis Results
             </h2>
             <small class="text-muted" th:text="${analysis.fileName}">contract.pdf</small>
         </div>
@@ -94,7 +94,7 @@
             <span th:unless="${analysis.aiServiceActive}"
                   class="badge bg-secondary">Stub Data</span>
         </div>
-        <div class="card-body" style="white-space:pre-wrap; font-family:'Segoe UI',sans-serif; font-size:.95rem; line-height:1.7;"
+        <div class="card-body text-white" style="white-space:pre-wrap; font-size:.95rem; line-height:1.7;"
              th:text="${analysis.summary}">No summary available.</div>
     </div>
 

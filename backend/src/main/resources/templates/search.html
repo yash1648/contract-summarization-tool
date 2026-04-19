@@ -1,21 +1,18 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
-      th:replace="~{layout :: layout(
-          pageTitle='Semantic Search — ContractAI',
-          activePage='search',
-          content=~{::main-content},
-          extraStyles=~{},
-          extraScripts=~{})}">
+      th:replace="~{layout :: layout('Semantic Search', ~{::content})}">
 <body>
-<th:block th:fragment="main-content">
+<th:block th:fragment="content">
 
-    <div class="page-header">
-        <h1><i class="bi bi-search me-2 text-primary"></i>Semantic Search</h1>
-        <p>Ask questions about your contracts in natural language.</p>
+    <div class="d-flex align-items-center mb-4">
+        <h2 class="fw-bold mb-0 text-white">
+            <i class="bi bi-search me-2" style="color:var(--accent);"></i>Semantic Search
+        </h2>
     </div>
+    <p class="text-muted mb-4">Ask questions about your contracts in natural language.</p>
 
     <!-- AI TODO banner -->
-    <div class="ai-todo-banner p-3 mb-4 d-flex align-items-start gap-3">
+    <div class="todo-banner p-3 mb-4 d-flex align-items-start gap-3">
         <i class="bi bi-cpu text-warning fs-4 mt-1"></i>
         <div>
             <strong class="text-white">TODO — Requires Python AI Service</strong>

@@ -51,7 +51,7 @@ public class GlobalExceptionHandler {
         model.addAttribute("errorTitle",   "AI Service Unavailable");
         model.addAttribute("errorMessage", ex.getMessage()
                 + "\n\nMake sure the Python AI service is running on port 5000 "
-                + "and Ollama has the llama3 model loaded.");
+                + "and Ollama has the configured model loaded (check .env OLLAMA_MODEL).");
         model.addAttribute("statusCode",   503);
         return "error";
     }

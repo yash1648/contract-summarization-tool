@@ -33,6 +33,10 @@ public class AnalysisResponseDto {
     private AnalysisResult.RiskLevel riskLevel;
     private RiskReport riskReport;
 
+    // ── RAG context ───────────────────────────────────────
+    /** Number of chunks that were used for RAG analysis */
+    private int chunksUsed;
+
     // ── Meta ───────────────────────────────────────────────
     private LocalDateTime analyzedAt;
 

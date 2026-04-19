@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import lombok.extern.slf4j.Slf4j;
@@ -65,6 +67,18 @@ public class AppConfig {
                 .filter(logResponse())
                 .build();
     }
+
+    @Bean
+    public WebMvcConfigurer faviconConfigurer() {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addResourceHandlers(ResourceHandlerRegistry registry) {
+                registry.addResourceHandler("/favicon.ico")
+                        .addResourceLocations("classpath:/static/");
+            }
+        };
+    }
+
 
     /** Log outgoing request method + URI at DEBUG level. */
     private ExchangeFilterFunction logRequest() {

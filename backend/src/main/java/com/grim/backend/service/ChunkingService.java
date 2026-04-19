@@ -31,10 +31,10 @@ import java.util.List;
 @Service
 public class ChunkingService {
 
-    @Value("${app.chunking.chunk-size:1600}")
+    @Value("${app.chunking.size:1200}")
     private int chunkSize;
 
-    @Value("${app.chunking.overlap-size:200}")
+    @Value("${app.chunking.overlap:150}")
     private int overlapSize;
 
     /**
@@ -51,6 +51,7 @@ public class ChunkingService {
         List<String> rawChunks = splitIntoRawChunks(text);
         List<ContractChunk> chunks = new ArrayList<>();
         int charOffset = 0;
+        int chunkIndex = 0; // separate index for output chunks
 
         for (int i = 0; i < rawChunks.size(); i++) {
             String chunkText = rawChunks.get(i).strip();
@@ -60,7 +61,7 @@ public class ChunkingService {
             int end   = start + chunkText.length();
 
             chunks.add(ContractChunk.builder()
-                    .index(i)
+                    .index(chunkIndex)
                     .text(chunkText)
                     .startOffset(Math.max(start, 0))
                     .endOffset(end)
@@ -68,6 +69,7 @@ public class ChunkingService {
                     .build());
 
             charOffset = end;
+            chunkIndex++;
         }
 
         log.info("Chunking complete: {} raw segments → {} chunks (chunkSize={}, overlap={})",

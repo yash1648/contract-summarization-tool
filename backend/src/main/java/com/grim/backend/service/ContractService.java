@@ -53,7 +53,15 @@ public class ContractService {
         String mimeType = resolveMimeType(file);
         log.info("Processing upload: {} ({} bytes)", file.getOriginalFilename(), file.getSize());
 
-        String storagePath = saveFileToDisk(file);
+        // Read file content once to avoid double-read of MultipartFile input stream
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (IOException e) {
+            throw new FileProcessingException("Failed to read file content: " + e.getMessage(), e);
+        }
+
+        String storagePath = saveFileToDisk(fileBytes, file.getOriginalFilename());
 
         Contract contract = Contract.builder()
                 .fileName(file.getOriginalFilename())
@@ -69,7 +77,7 @@ public class ContractService {
         contract.setStatus(Contract.ProcessingStatus.EXTRACTING);
         contractRepository.save(contract);
 
-        String extractedText = textExtractionService.extractText(file, mimeType);
+        String extractedText = textExtractionService.extractText(fileBytes, mimeType);
         if (extractedText.isBlank()) {
             markFailed(contract, "Extraction produced no content.");
             throw new FileProcessingException("Document appears empty or image-only.");
@@ -141,6 +149,10 @@ public class ContractService {
 
     // ── Status helpers ───────────────────────────────────────
 
+    public void save(Contract contract) {
+        contractRepository.save(contract);
+    }
+
     public void markCompleted(String contractId, String analysisResultId) {
         Contract c = getById(contractId);
         c.setStatus(Contract.ProcessingStatus.COMPLETED);
@@ -186,13 +198,13 @@ public class ContractService {
         return ct != null ? ct : "unknown";
     }
 
-    private String saveFileToDisk(MultipartFile file) {
+    private String saveFileToDisk(byte[] fileBytes, String originalFilename) {
         try {
             Path dir = Paths.get(uploadDir).toAbsolutePath();
             Files.createDirectories(dir);
-            String safeName = UUID.randomUUID() + "_" + sanitize(file.getOriginalFilename());
+            String safeName = UUID.randomUUID() + "_" + sanitize(originalFilename);
             Path target = dir.resolve(safeName);
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(new java.io.ByteArrayInputStream(fileBytes), target, StandardCopyOption.REPLACE_EXISTING);
             return target.toString();
         } catch (IOException e) {
             throw new FileProcessingException("Failed to save file: " + e.getMessage(), e);

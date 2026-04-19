@@ -51,12 +51,20 @@ public class AnalysisService {
 
         // Delegate to AI integration service
         contract.setStatus(Contract.ProcessingStatus.ANALYZING);
+        contractService.save(contract);
 
-        AnalysisResult result = aiIntegrationService.analyze(
-                contractId,
-                contract.getFileName(),
-                contract.getChunks()
-        );
+        AnalysisResult result;
+        try {
+            result = aiIntegrationService.analyze(
+                    contractId,
+                    contract.getFileName(),
+                    contract.getChunks()
+            );
+        } catch (Exception e) {
+            log.error("AI Analysis explicitly failed for contract {}: {}", contractId, e.getMessage(), e);
+            contractService.markFailed(contract, "Analysis failed: " + e.getMessage());
+            throw e;
+        }
 
         // Persist result
         result = analysisResultRepository.save(result);
@@ -111,6 +119,7 @@ public class AnalysisService {
                 .riskScore(result.getRiskScore())
                 .riskLevel(result.getRiskLevel())
                 .riskReport(result.getRiskReport())
+                .chunksUsed(result.getChunksUsed())
                 .analyzedAt(result.getAnalyzedAt())
                 .aiServiceActive(aiActive)
                 .build();

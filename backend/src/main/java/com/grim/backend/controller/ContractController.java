@@ -2,6 +2,7 @@ package com.grim.backend.controller;
 
 import com.grim.backend.dto.UploadResponseDto;
 import com.grim.backend.model.Contract;
+import com.grim.backend.service.AnalysisService;
 import com.grim.backend.service.ContractService;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,8 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Handles contract upload and listing pages.
@@ -30,6 +33,14 @@ import java.util.List;
 public class ContractController {
 
     private final ContractService contractService;
+    private final AnalysisService analysisService;
+
+    /**
+     * Dedicated executor for background analysis tasks.
+     * Using a virtual thread executor for lightweight concurrency
+     * without blocking the common ForkJoinPool.
+     */
+    private final ExecutorService analysisExecutor = Executors.newFixedThreadPool(2);
 
     /** List all uploaded contracts */
     @GetMapping
@@ -57,10 +68,22 @@ public class ContractController {
                                RedirectAttributes redirectAttributes) {
         try {
             UploadResponseDto response = contractService.uploadAndProcess(file);
+
+            // Auto-trigger analysis asynchronously on a dedicated thread pool
+            final String contractId = response.getContractId();
+            analysisExecutor.submit(() -> {
+                try {
+                    log.info("Starting async analysis for contractId={}", contractId);
+                    analysisService.analyzeContract(contractId);
+                    log.info("Async analysis completed for contractId={}", contractId);
+                } catch (Exception e) {
+                    log.error("Async analysis failed for contractId={}: {}", contractId, e.getMessage(), e);
+                }
+            });
+
             redirectAttributes.addFlashAttribute("successMessage",
-                    "✓ " + response.getFileName() + " uploaded successfully. "
-                    + response.getTotalChunks() + " chunks ready.");
-            redirectAttributes.addFlashAttribute("uploadResult", response);
+                    "✓ " + response.getFileName() + " uploaded successfully. AI Analysis is running in the background.");
+
             return "redirect:/contracts/" + response.getContractId();
         } catch (Exception e) {
             log.error("Upload failed: {}", e.getMessage());
@@ -74,10 +97,18 @@ public class ContractController {
     @GetMapping("/{id}")
     public String contractDetail(@PathVariable String id, Model model) {
         Contract contract = contractService.getById(id);
+        long embeddedCount = contract.getChunks() == null ? 0 :
+                contract.getChunks().stream()
+                .filter(c -> c.isEmbedded())
+                .count();
+
         model.addAttribute("contract", contract);
-        // Show first 3 chunks as preview
-        int previewCount = Math.min(3, contract.getChunks().size());
-        model.addAttribute("previewChunks", contract.getChunks().subList(0, previewCount));
+        model.addAttribute("embeddedCount", embeddedCount);
+
+        // 🔥 ALSO ADD ENUMS
+        model.addAttribute("STATUS_COMPLETED", Contract.ProcessingStatus.COMPLETED);
+        model.addAttribute("STATUS_ANALYZING", Contract.ProcessingStatus.ANALYZING);
+        model.addAttribute("STATUS_PENDING", Contract.ProcessingStatus.PENDING_AI);
         return "contract-detail";
     }
 

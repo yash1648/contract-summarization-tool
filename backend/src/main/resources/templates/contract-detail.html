@@ -9,8 +9,8 @@
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
-            <h2 class="fw-bold mb-0" style="color:#0d1b2a;">
-                <i class="bi bi-file-earmark-text me-2" style="color:#00b4d8;"></i>
+            <h2 class="fw-bold mb-0 text-white">
+                <i class="bi bi-file-earmark-text me-2" style="color:var(--accent);"></i>
                 <span th:text="${contract.fileName}">contract.pdf</span>
             </h2>
             <small class="text-muted">Contract ID: <code th:text="${contract.id}">-</code></small>
@@ -72,29 +72,29 @@
     <div class="d-flex gap-2 mb-4 flex-wrap">
 
         <!-- Analyze (if not yet completed) -->
-        <form th:if="${contract.status != T(com.contractai.model.Contract.ProcessingStatus).COMPLETED
-               and contract.status != T(com.contractai.model.Contract.ProcessingStatus).ANALYZING}"
-              th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post">
-            <button type="submit" class="btn btn-success" id="analyzeBtn"
-                    onclick="this.disabled=true; this.innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span>Analyzing…'">
+        <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED
+               and contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).ANALYZING}"
+              th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
+              onsubmit="const btn=document.getElementById('analyzeBtn'); setTimeout(()=>btn.disabled=true,0); btn.innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span>Analyzing…';">
+            <button type="submit" class="btn btn-success" id="analyzeBtn">
                 <i class="bi bi-cpu me-1"></i>Run AI Analysis
             </button>
         </form>
 
         <!-- Analyzing spinner -->
-        <button th:if="${contract.status == T(com.contractai.model.Contract.ProcessingStatus).ANALYZING}"
+        <button th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).ANALYZING}"
                 class="btn btn-success" disabled>
             <span class="spinner-border spinner-border-sm me-1"></span>Analyzing…
         </button>
 
         <!-- View results (if completed) -->
-        <a th:if="${contract.status == T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+        <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
            th:href="@{/analysis/{id}/results(id=${contract.id})}"
            class="btn btn-primary">
             <i class="bi bi-eye me-1"></i>View Analysis Results
         </a>
         <!-- Re-run (if completed) -->
-        <form th:if="${contract.status == T(com.contractai.model.Contract.ProcessingStatus).COMPLETED}"
+        <form th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
               th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post">
             <button type="submit" class="btn btn-outline-success">
                 <i class="bi bi-arrow-clockwise me-1"></i>Re-analyze
@@ -172,6 +172,11 @@
         </div>
     </div>
 
+    <script th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).ANALYZING or contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).PENDING_AI}">
+        setTimeout(function() {
+            window.location.reload();
+        }, 5000);
+    </script>
 </th:block>
 </body>
 </html>
