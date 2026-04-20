@@ -3,93 +3,93 @@
       th:replace="~{layout :: layout('Contracts', ~{::content})}">
 <body>
 <th:block th:fragment="content">
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="fw-bold mb-0 text-white">
-        <i class="bi bi-folder2-open me-2" style="color:var(--accent);"></i>All Contracts
-        <span class="badge bg-secondary ms-2 fs-6" th:text="${totalCount}">0</span>
-    </h2>
-    <a th:href="@{/contracts/upload}" class="btn btn-primary">
-        <i class="bi bi-upload me-1"></i>Upload New
-    </a>
-</div>
-
-<div class="card shadow-sm">
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0">
-            <thead>
-                <tr>
-                    <th>File Name</th>
-                    <th>Type</th>
-                    <th>Size</th>
-                    <th>Chunks</th>
-                    <th>Status</th>
-                    <th>Uploaded</th>
-                    <th class="text-end">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr th:if="${contracts.empty}">
-                    <td colspan="7" class="text-center text-muted py-5">
-                        <i class="bi bi-inbox display-6 d-block mb-2"></i>
-                        No contracts uploaded yet.
-                        <a th:href="@{/contracts/upload}">Upload your first contract</a>
-                    </td>
-                </tr>
-                <tr th:each="contract : ${contracts}">
-                    <td>
-                        <i class="bi bi-file-earmark-pdf me-1 text-danger"
-                           th:if="${contract.fileType.contains('pdf')}"></i>
-                        <i class="bi bi-file-earmark-word me-1 text-primary"
-                           th:unless="${contract.fileType.contains('pdf')}"></i>
-                        <a th:href="@{/contracts/{id}(id=${contract.id})}"
-                           class="text-decoration-none fw-semibold"
-                           th:text="${contract.fileName}">file.pdf</a>
-                    </td>
-                    <td>
-                        <span class="text-muted small"
-                              th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
-                    </td>
-                    <td th:text="${#numbers.formatDecimal(contract.fileSize / 1024.0 / 1024.0, 1, 2) + ' MB'}">0 MB</td>
-                    <td th:text="${contract.totalChunks}">0</td>
-                    <td>
-                        <span class="status-pill"
-                              th:classappend="'status-' + ${contract.status}"
-                              th:text="${contract.status}">UPLOADED</span>
-                    </td>
-                    <td class="text-muted small"
-                        th:text="${#temporals.format(contract.createdAt, 'dd MMM yyyy HH:mm')}">-</td>
-                    <td class="text-end">
-                        <div class="btn-group btn-group-sm">
-                            <!-- Analyze button (only if not yet completed) -->
-                            <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
-                                  th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
-                                  class="d-inline">
-                                <button type="submit" class="btn btn-outline-success"
-                                        title="Run AI Analysis">
-                                    <i class="bi bi-cpu"></i> Analyze
-                                </button>
-                            </form>
-                            <!-- View results (if completed) -->
-                            <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
-                               th:href="@{/analysis/{id}/results(id=${contract.id})}"
-                               class="btn btn-outline-primary" title="View Results">
-                                <i class="bi bi-eye"></i> Results
-                            </a>
-                            <!-- Delete -->
-                            <form th:action="@{/contracts/{id}/delete(id=${contract.id})}"
-                                  method="post" class="d-inline"
-                                  onsubmit="return confirm('Delete this contract and all its data?')">
-                                <button type="submit" class="btn btn-outline-danger" title="Delete">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h2 class="fw-bold mb-0 text-white">
+            <i class="bi bi-folder2-open me-2" style="color:var(--accent);"></i>All Contracts
+            <span class="badge bg-secondary ms-2 fs-6" th:text="${totalCount}">0</span>
+        </h2>
+        <a th:href="@{/contracts/upload}" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Upload New
+        </a>
     </div>
-</div>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Chunks</th>
+                        <th>Status</th>
+                        <th>Uploaded</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:if="${contracts.empty}">
+                        <td colspan="7" class="text-center py-5">
+                            <i class="bi bi-inbox display-6 d-block mb-2"></i>
+                            No contracts uploaded yet.
+                            <a th:href="@{/contracts/upload}">Upload your first contract</a>
+                        </td>
+                    </tr>
+                    <tr th:each="contract : ${contracts}">
+                        <td>
+                            <i class="bi bi-file-earmark-pdf me-1 text-danger"
+                               th:if="${contract.fileType.contains('pdf')}"></i>
+                            <i class="bi bi-file-earmark-word me-1 text-primary"
+                               th:unless="${contract.fileType.contains('pdf')}"></i>
+                            <a th:href="@{/contracts/{id}(id=${contract.id})}"
+                               class="text-decoration-none fw-semibold"
+                               th:text="${contract.fileName}">file.pdf</a>
+                        </td>
+                        <td>
+                            <span class="text-muted small"
+                                  th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
+                        </td>
+                        <td th:text="${#numbers.formatDecimal(contract.fileSize / 1024.0 / 1024.0, 1, 2) + ' MB'}">0 MB</td>
+                        <td th:text="${contract.totalChunks}">0</td>
+                        <td>
+                            <span class="status-pill"
+                                  th:classappend="'status-' + ${contract.status}"
+                                  th:text="${contract.status}">UPLOADED</span>
+                        </td>
+                        <td class="text-muted small"
+                            th:text="${#temporals.format(contract.createdAt, 'dd MMM yyyy HH:mm')}">-</td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                <!-- Analyze button (only if not yet completed) -->
+                                <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
+                                      th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
+                                      class="d-inline">
+                                    <button type="submit" class="btn btn-outline-success"
+                                            title="Run AI Analysis">
+                                        <i class="bi bi-cpu"></i> Analyze
+                                    </button>
+                                </form>
+                                <!-- View results (if completed) -->
+                                <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
+                                   th:href="@{/analysis/{id}/results(id=${contract.id})}"
+                                   class="btn btn-outline-primary" title="View Results">
+                                    <i class="bi bi-eye"></i> Results
+                                </a>
+                                <!-- Delete -->
+                                <form th:action="@{/contracts/{id}/delete(id=${contract.id})}"
+                                      method="post" class="d-inline"
+                                      onsubmit="return confirm('Delete this contract and all its data?')">
+                                    <button type="submit" class="btn btn-outline-danger" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </th:block>
 </body>
 </html>

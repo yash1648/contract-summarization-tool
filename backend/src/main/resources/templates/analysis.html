@@ -4,8 +4,8 @@
 <body>
 <th:block th:fragment="content">
 
-    <div class="d-flex align-items-center mb-4 gap-3">
-        <a th:href="@{/contracts/{id}(id=${analysis.contractId})}"
+    <div class="d-flex justify-content-between align-items-center mb-4 gap-3">
+        <a th:href="@{/contracts/upload}"
            class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i>
         </a>
@@ -24,19 +24,15 @@
         </form>
     </div>
 
-    <!-- ── Stats row ─────────────────────────────────────────────── -->
+    <!-- ── Stats row ───────────────────────────────────────────── -->
     <div class="row g-3 mb-4">
         <!-- Risk score hero card -->
         <div class="col-md-3">
-            <div class="card text-center h-100 shadow-sm"
-                 th:style="${analysis.riskScore > 6.6 ? 'border-left:5px solid #dc3545;' :
-                         analysis.riskScore > 3.3 ? 'border-left:5px solid #fd7e14;' :
-                                                     'border-left:5px solid #198754;'}">
+            <div class="card text-center h-100 shadow-sm">
                 <div class="card-body py-4">
                     <div class="text-muted mb-1 small fw-semibold">RISK SCORE</div>
-                    <div class="display-4 fw-bold"
-                         th:text="${#numbers.formatDecimal(analysis.riskScore, 1, 1)}">0.0</div>
-                    <div class="text-muted small mb-2">out of 10.0</div>
+                    <div class="display-4 fw-bold" th:text="${#numbers.formatDecimal(analysis.riskScore, 1, 1)}">0.0</div>
+                    <div class="text-muted small">out of 10.0</div>
                     <span class="badge px-3 py-2"
                           th:classappend="${riskBadgeClass}"
                           th:text="${analysis.riskLevel}">LOW</span>
@@ -83,7 +79,7 @@
         </div>
     </div>
 
-    <!-- ── AI Summary ─────────────────────────────────────────────── -->
+    <!-- ── AI Summary ───────────────────────────────────────────── -->
     <div class="card shadow-sm mb-4">
         <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold">
@@ -101,7 +97,7 @@
     <!-- ── Risk Details (only when AI is active and flags exist) ─── -->
     <div class="card shadow-sm mb-4"
          th:if="${analysis.aiServiceActive and analysis.riskReport != null
-             and analysis.riskReport.totalFlags() > 0}">
+                 and analysis.riskReport.totalFlags() > 0}">
         <div class="card-header fw-semibold">
             <i class="bi bi-shield-exclamation me-2 text-danger"></i>Detected Risk Clauses
         </div>
@@ -241,8 +237,7 @@
 
             const res   = document.getElementById('searchResults');
             const btn   = document.getElementById('searchBtn');
-            res.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted">'
-                + '<span class="spinner-border spinner-border-sm"></span>Searching…</div>';
+            res.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted"><span class="spinner-border spinner-border-sm"></span>Searching…</div>';
             btn.disabled  = true;
 
             try {
@@ -263,7 +258,7 @@
                 }
 
                 res.innerHTML = data.results.map((r, i) => `
-            <div class="card mb-2 border-start border-primary border-3">
+            <div class="card mb-2 search-result-card border-start border-primary border-3">
                 <div class="card-body py-2 px-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <span class="badge bg-primary">Chunk #${r.chunkIndex}</span>

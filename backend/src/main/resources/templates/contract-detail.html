@@ -51,8 +51,7 @@
                     <div class="text-muted small">Total Chunks</div>
                     <div class="fw-bold" th:text="${contract.totalChunks}">0</div>
                     <div class="text-muted" style="font-size:.7rem;">
-                        <span th:text="${contract.chunks.stream().filter(c -> c.embedded).count()}">0</span>
-                        embedded
+                        <span th:text="${contract.chunks.stream().filter(c -> c.embedded).count()} + ' embedded' + (${contract.totalChunks} > ${contract.chunks.stream().filter(c -> c.embedded).count} ? '  (' + (${contract.totalChunks} - ${contract.chunks.stream().filter(c -> c.embedded).count}) + ' to go)' : '')">0 embedded</span>
                     </div>
                 </div>
             </div>
@@ -75,8 +74,8 @@
         <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED
                and contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).ANALYZING}"
               th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
-              onsubmit="const btn=document.getElementById('analyzeBtn'); setTimeout(()=>btn.disabled=true,0); btn.innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span>Analyzing…';">
-            <button type="submit" class="btn btn-success" id="analyzeBtn">
+              class="d-inline">
+            <button type="submit" class="btn btn-success">
                 <i class="bi bi-cpu me-1"></i>Run AI Analysis
             </button>
         </form>
@@ -97,7 +96,7 @@
         <form th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
               th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post">
             <button type="submit" class="btn btn-outline-success">
-                <i class="bi bi-arrow-clockwise me-1"></i>Re-analyze
+                <i class="bi bi-arrow-clockwise me-1"></i>Re-run Analysis
             </button>
         </form>
 
@@ -115,10 +114,7 @@
         <div class="card-header fw-semibold d-flex justify-content-between">
             <span><i class="bi bi-grid-3x3-gap me-2"></i>Embedding Status (FAISS)</span>
             <span class="text-muted small">
-            <span th:text="${contract.chunks.stream().filter(c -> c.embedded).count()}">0</span>
-            /
-            <span th:text="${contract.totalChunks}">0</span>
-            chunks embedded
+            <span th:text="${contract.chunks.stream().filter(c -> c.embedded).count()} + ' / ' + ${contract.totalChunks}">0 / 0</span> chunks embedded
         </span>
         </div>
         <div class="card-body pb-2">
@@ -130,9 +126,9 @@
                          th:attr="aria-valuenow=${pct}"></div>
                 </div>
                 <div class="d-flex justify-content-between small text-muted">
-                <span th:if="${pct == 100}" class="text-success fw-semibold">
-                    <i class="bi bi-check-circle-fill me-1"></i>All chunks embedded in FAISS
-                </span>
+                    <span th:if="${pct == 100}" class="text-success fw-semibold">
+                        <i class="bi bi-check-circle-fill me-1"></i>All chunks embedded in FAISS
+                    </span>
                     <span th:unless="${pct == 100}">
                     Run analysis to embed remaining chunks.
                 </span>
@@ -172,6 +168,7 @@
         </div>
     </div>
 
+    <!-- Auto-refresh while analyzing -->
     <script th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).ANALYZING or contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).PENDING_AI}">
         setTimeout(function() {
             window.location.reload();
