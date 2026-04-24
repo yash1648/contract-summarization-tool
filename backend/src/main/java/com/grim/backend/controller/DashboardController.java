@@ -56,6 +56,12 @@ public class DashboardController {
         return "index";
     }
 
+    @GetMapping("/search")
+    public String searchPage(Model model) {
+        model.addAttribute("contracts", contractService.getAllContracts());
+        return "search";
+    }
+
     /**
      * JSON health endpoint — always fetches fresh status.
      * Useful for Docker health-checks and monitoring dashboards.

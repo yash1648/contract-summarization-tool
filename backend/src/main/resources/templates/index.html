@@ -4,9 +4,162 @@
 <body>
 <th:block th:fragment="content">
 
+    <th:block th:if="${analysis == null}">
+    <!-- ======================== DASHBOARD VIEW ======================== -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold mb-0 text-white">
+            <i class="bi bi-speedometer2 me-2" style="color:var(--accent);"></i>Dashboard
+        </h2>
+        <a th:href="@{/contracts/upload}" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Upload Contract
+        </a>
+    </div>
+
+    <!-- AI Status Banner -->
+    <div class="alert d-flex align-items-center gap-3 p-3 mb-4"
+         th:classappend="${aiStatus.isUp()} ? 'alert-success' : 'alert-warning'"
+         style="border-radius: 12px;">
+        <i class="bi fs-4" th:classappend="${aiStatus.isUp()} ? 'bi-cpu-fill' : 'bi-exclamation-triangle'"></i>
+        <div>
+            <strong th:text="${aiStatus.isUp()} ? 'AI Service Online' : 'AI Service Offline'">AI Service</strong>
+            <span th:if="${aiStatus.isUp()}" class="ms-2 text-muted">
+                Model: <span th:text="${aiStatus.ollamaModel}">-</span>
+                | Embeddings: <span th:text="${aiStatus.embeddingModel}">-</span>
+                | Indexes: <span th:text="${aiStatus.totalIndexes}">0</span>
+            </span>
+            <span th:unless="${aiStatus.isUp()}" class="ms-2 text-muted">
+                <span th:text="${aiStatus.errorMessage}">Service unavailable</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="stat-card p-3">
+                <div class="text-muted small mb-1">Total Contracts</div>
+                <div class="display-5 fw-bold" th:text="${totalContracts}">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card p-3">
+                <div class="text-muted small mb-1">Completed</div>
+                <div class="display-5 fw-bold text-success" th:text="${completedContracts}">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card p-3">
+                <div class="text-muted small mb-1">Pending Analysis</div>
+                <div class="display-5 fw-bold text-warning" th:text="${pendingContracts}">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card p-3">
+                <div class="text-muted small mb-1">High Risk</div>
+                <div class="display-5 fw-bold text-danger" th:text="${highRiskContracts}">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Contracts -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold"><i class="bi bi-folder2-open me-2"></i>Recent Contracts</span>
+            <a th:href="@{/contracts}" class="btn btn-sm btn-outline-secondary">View All</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Status</th>
+                            <th>Uploaded</th>
+                            <th>Risk</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="c : ${recentContracts}">
+                            <td>
+                                <i class="bi me-2" th:classappend="${c.fileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-pdf-fill text-danger' : 'bi-file-word-fill text-primary'"></i>
+                                <span th:text="${c.fileName}">-</span>
+                            </td>
+                            <td>
+                                <span class="status-pill" th:classappend="'status-' + ${c.status.name()}" th:text="${c.status.name().replace('_', ' ')}">-</span>
+                            </td>
+                            <td class="text-muted small" th:text="${#temporals.format(c.createdAt, 'dd MMM yyyy')}">-</td>
+                            <td>
+                                <span th:if="${c.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}" class="badge badge-low">Complete</span>
+                                <span th:unless="${c.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}" class="text-muted">-</span>
+                            </td>
+                            <td>
+                                <a th:href="@{/contracts/{id}(id=${c.id})}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(recentContracts)}">
+                            <td colspan="5" class="text-center text-muted py-4">No contracts uploaded yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Analyses -->
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold"><i class="bi bi-bar-chart-line me-2"></i>Recent Analyses</span>
+            <a th:href="@{/analysis}" class="btn btn-sm btn-outline-secondary">View All</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Risk Score</th>
+                            <th>Summary</th>
+                            <th>Analyzed</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:each="a : ${recentAnalyses}">
+                            <td>
+                                <i class="bi me-2" th:classappend="${a.contractFileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-pdf-fill text-danger' : 'bi-file-word-fill text-primary'"></i>
+                                <span th:text="${a.contractFileName}">-</span>
+                            </td>
+                            <td>
+                                <span class="badge" th:classappend="${a.riskScore >= 7} ? 'badge-high' : (${a.riskScore >= 4} ? 'badge-medium' : 'badge-low')" th:text="${#numbers.formatDecimal(a.riskScore, 1, 1)}">-</span>
+                            </td>
+                            <td class="text-muted small" style="max-width: 300px;">
+                                <span th:text="${#strings.abbreviate(a.summary, 80)}">-</span>
+                            </td>
+                            <td class="text-muted small" th:text="${#temporals.format(a.analyzedAt, 'dd MMM yyyy HH:mm')}">-</td>
+                            <td>
+                                <a th:href="@{/analysis/{contractId}/results(contractId=${a.contractId})}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(recentAnalyses)}">
+                            <td colspan="5" class="text-center text-muted py-4">No analyses yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    </th:block>
+
+    <th:block th:if="${analysis != null}">
+    <!-- ======================== ANALYSIS RESULTS VIEW ======================== -->
+
     <div class="d-flex justify-content-between align-items-center mb-4 gap-3">
-        <a th:href="@{/contracts/upload}"
-           class="btn btn-sm btn-outline-secondary">
+        <a th:href="@{/dashboard}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
@@ -15,54 +168,22 @@
             </h2>
             <small class="text-muted" th:text="${analysis.fileName}">contract.pdf</small>
         </div>
-        <!-- Re-run analysis button -->
-        <form th:action="@{/analysis/{id}/run(id=${analysis.contractId})}"
-              method="post" class="ms-auto">
+        <form th:action="@{/analysis/{contractId}/run(contractId=${analysis.contractId})}" method="post" class="ms-auto">
             <button type="submit" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-arrow-clockwise me-1"></i>Re-run Analysis
             </button>
         </form>
     </div>
 
-    <!-- ── Stats row ───────────────────────────────────────────── -->
+    <!-- Stats Row -->
     <div class="row g-3 mb-4">
-        <!-- Risk score hero card -->
         <div class="col-md-3">
             <div class="card text-center h-100 shadow-sm">
                 <div class="card-body py-4">
                     <div class="text-muted mb-1 small fw-semibold">RISK SCORE</div>
                     <div class="display-4 fw-bold" th:text="${#numbers.formatDecimal(analysis.riskScore, 1, 1)}">0.0</div>
                     <div class="text-muted small">out of 10.0</div>
-                    <span class="badge px-3 py-2"
-                          th:classappend="${riskBadgeClass}"
-                          th:text="${analysis.riskLevel}">LOW</span>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card text-center h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Penalty Clauses</div>
-                    <div class="display-6 fw-bold text-danger"
-                         th:text="${analysis.riskReport != null ? analysis.riskReport.penaltyClauses.size() : 0}">0</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card text-center h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Termination Risks</div>
-                    <div class="display-6 fw-bold text-warning"
-                         th:text="${analysis.riskReport != null ? analysis.riskReport.terminationRisks.size() : 0}">0</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card text-center h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Liability Issues</div>
-                    <div class="display-6 fw-bold text-warning"
-                         th:text="${analysis.riskReport != null ? analysis.riskReport.liabilityIssues.size() : 0}">0</div>
+                    <span class="badge px-3 py-2" th:classappend="${riskBadgeClass}" th:text="${analysis.riskLevel}">LOW</span>
                 </div>
             </div>
         </div>
@@ -71,46 +192,35 @@
                 <div class="card-body">
                     <div class="text-muted small">Chunks Used (RAG)</div>
                     <div class="display-6 fw-bold" th:text="${analysis.chunksUsed}">0</div>
-                    <div class="text-muted small">of
-                        <span th:text="${analysis.totalChunks}">0</span> total
-                    </div>
+                    <div class="text-muted small">of <span th:text="${analysis.totalChunks}">0</span> total</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- ── AI Summary ───────────────────────────────────────────── -->
+    <!-- Summary -->
     <div class="card shadow-sm mb-4">
         <div class="card-header d-flex align-items-center justify-content-between">
-        <span class="fw-semibold">
-            <i class="bi bi-align-left me-2"></i>AI-Generated Summary
-        </span>
-            <span th:if="${analysis.aiServiceActive}"
-                  class="badge bg-success"><i class="bi bi-cpu me-1"></i>Live AI</span>
-            <span th:unless="${analysis.aiServiceActive}"
-                  class="badge bg-secondary">Stub Data</span>
+            <span class="fw-semibold"><i class="bi bi-align-left me-2"></i>AI-Generated Summary</span>
+            <span th:if="${analysis.aiServiceActive}" class="badge bg-success"><i class="bi bi-cpu me-1"></i>Live AI</span>
+            <span th:unless="${analysis.aiServiceActive}" class="badge bg-secondary">Stub Data</span>
         </div>
-        <div class="card-body text-white" style="white-space:pre-wrap; font-size:.95rem; line-height:1.7;"
-             th:text="${analysis.summary}">No summary available.</div>
+        <div class="card-body text-white" style="white-space:pre-wrap; font-size:.95rem; line-height:1.7;" th:text="${analysis.summary}">No summary available.</div>
     </div>
 
-    <!-- ── Risk Details (only when AI is active and flags exist) ─── -->
+    <!-- Risk Details (when flags exist) -->
     <div class="card shadow-sm mb-4"
-         th:if="${analysis.aiServiceActive and analysis.riskReport != null
-                 and analysis.riskReport.totalFlags() > 0}">
+         th:if="${analysis.riskReport != null and analysis.riskReport.totalFlags() > 0}">
         <div class="card-header fw-semibold">
             <i class="bi bi-shield-exclamation me-2 text-danger"></i>Detected Risk Clauses
         </div>
         <div class="card-body">
-
-            <!-- Penalty Clauses -->
             <div th:if="${!analysis.riskReport.penaltyClauses.empty}" class="mb-4">
                 <h6 class="d-flex align-items-center gap-2 mb-3">
                 <span class="badge bg-danger px-2 py-1">
                     <i class="bi bi-exclamation-circle me-1"></i>Penalty Clauses
                 </span>
-                    <span class="text-muted small"
-                          th:text="${analysis.riskReport.penaltyClauses.size()} + ' found'">0 found</span>
+                    <span class="text-muted small" th:text="${analysis.riskReport.penaltyClauses.size()} + ' found'">0 found</span>
                 </h6>
                 <ul class="list-group list-group-flush mb-2">
                     <li class="list-group-item d-flex align-items-start gap-2"
@@ -121,14 +231,12 @@
                 </ul>
             </div>
 
-            <!-- Termination Risks -->
             <div th:if="${!analysis.riskReport.terminationRisks.empty}" class="mb-4">
                 <h6 class="d-flex align-items-center gap-2 mb-3">
                 <span class="badge bg-warning text-dark px-2 py-1">
                     <i class="bi bi-door-open me-1"></i>Termination Risks
                 </span>
-                    <span class="text-muted small"
-                          th:text="${analysis.riskReport.terminationRisks.size()} + ' found'">0 found</span>
+                    <span class="text-muted small" th:text="${analysis.riskReport.terminationRisks.size()} + ' found'">0 found</span>
                 </h6>
                 <ul class="list-group list-group-flush mb-2">
                     <li class="list-group-item d-flex align-items-start gap-2"
@@ -139,14 +247,12 @@
                 </ul>
             </div>
 
-            <!-- Liability Issues -->
             <div th:if="${!analysis.riskReport.liabilityIssues.empty}" class="mb-4">
                 <h6 class="d-flex align-items-center gap-2 mb-3">
                 <span class="badge bg-warning text-dark px-2 py-1">
                     <i class="bi bi-shield-exclamation me-1"></i>Liability Issues
                 </span>
-                    <span class="text-muted small"
-                          th:text="${analysis.riskReport.liabilityIssues.size()} + ' found'">0 found</span>
+                    <span class="text-muted small" th:text="${analysis.riskReport.liabilityIssues.size()} + ' found'">0 found</span>
                 </h6>
                 <ul class="list-group list-group-flush mb-2">
                     <li class="list-group-item d-flex align-items-start gap-2"
@@ -157,14 +263,12 @@
                 </ul>
             </div>
 
-            <!-- Other Flags -->
             <div th:if="${!analysis.riskReport.otherFlags.empty}">
                 <h6 class="d-flex align-items-center gap-2 mb-3">
                 <span class="badge bg-secondary px-2 py-1">
                     <i class="bi bi-flag me-1"></i>Other Flags
                 </span>
-                    <span class="text-muted small"
-                          th:text="${analysis.riskReport.otherFlags.size()} + ' found'">0 found</span>
+                    <span class="text-muted small" th:text="${analysis.riskReport.otherFlags.size()} + ' found'">0 found</span>
                 </h6>
                 <ul class="list-group list-group-flush">
                     <li class="list-group-item d-flex align-items-start gap-2"
@@ -177,16 +281,15 @@
         </div>
     </div>
 
-    <!-- No risks found banner -->
+    <!-- No risks banner -->
     <div class="alert alert-success"
-         th:if="${analysis.aiServiceActive and analysis.riskReport != null
-             and analysis.riskReport.totalFlags() == 0}">
+         th:if="${analysis.riskReport != null and analysis.riskReport.totalFlags() == 0}">
         <i class="bi bi-check-circle-fill me-2"></i>
         <strong>No significant risks detected.</strong>
         The AI found no penalty clauses, termination risks, or liability issues in this contract.
     </div>
 
-    <!-- ── Semantic Search ──────────────────────────────────────── -->
+    <!-- Semantic Search -->
     <div class="card shadow-sm mb-4">
         <div class="card-header fw-semibold">
             <i class="bi bi-search me-2"></i>Semantic Search
@@ -224,7 +327,7 @@
     </div>
 
     <script th:inline="javascript">
-        const contractId = /*[[${analysis.contractId}]]*/ '';
+        const contractId = [[${analysis.contractId}]];
 
         function fillQuery(q) {
             document.getElementById('searchQuery').value = q;
@@ -235,10 +338,10 @@
             const query = document.getElementById('searchQuery').value.trim();
             if (!query) return;
 
-            const res   = document.getElementById('searchResults');
-            const btn   = document.getElementById('searchBtn');
+            const res = document.getElementById('searchResults');
+            const btn = document.getElementById('searchBtn');
             res.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted"><span class="spinner-border spinner-border-sm"></span>Searching…</div>';
-            btn.disabled  = true;
+            btn.disabled = true;
 
             try {
                 const resp = await fetch('/analysis/search', {
@@ -249,7 +352,7 @@
                 const data = await resp.json();
 
                 if (!resp.ok) {
-                    res.innerHTML = `<div class="alert alert-danger">Error: ${data.message || resp.status}</div>`;
+                    res.innerHTML = '<div class="alert alert-danger">Error: ' + (data.message || resp.status) + '</div>';
                     return;
                 }
                 if (!data.results || data.results.length === 0) {
@@ -257,20 +360,20 @@
                     return;
                 }
 
-                res.innerHTML = data.results.map((r, i) => `
-            <div class="card mb-2 search-result-card border-start border-primary border-3">
-                <div class="card-body py-2 px-3">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span class="badge bg-primary">Chunk #${r.chunkIndex}</span>
-                        <span class="text-muted small">
-                            Similarity: <strong>${(r.score * 100).toFixed(1)}%</strong>
-                        </span>
-                    </div>
-                    <p class="mb-0 small" style="line-height:1.5;">${escapeHtml(r.text)}</p>
-                </div>
-            </div>`).join('');
+                res.innerHTML = data.results.map((r) => `
+                    <div class="card mb-2 search-result-card border-start border-primary border-3">
+                        <div class="card-body py-2 px-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="badge bg-primary">Chunk #${r.chunkIndex}</span>
+                                <span class="text-muted small">
+                                    Similarity: <strong>${(r.score * 100).toFixed(1)}%</strong>
+                                </span>
+                            </div>
+                            <p class="mb-0 small" style="line-height:1.5;">${escapeHtml(r.text)}</p>
+                        </div>
+                    </div>`).join('');
             } catch(e) {
-                res.innerHTML = `<div class="alert alert-danger">Search failed: ${e.message}</div>`;
+                res.innerHTML = '<div class="alert alert-danger">Search failed: ' + e.message + '</div>';
             } finally {
                 btn.disabled = false;
             }
@@ -282,10 +385,12 @@
             return d.innerHTML;
         }
 
-        document.getElementById('searchQuery').addEventListener('keydown', e => {
+        document.getElementById('searchQuery').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') runSearch();
         });
     </script>
+    </th:block>
+
 </th:block>
 </body>
 </html>

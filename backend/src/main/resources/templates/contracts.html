@@ -62,7 +62,7 @@
                             <div class="btn-group btn-group-sm">
                                 <!-- Analyze button (only if not yet completed) -->
                                 <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
-                                      th:action="@{/analysis/{id}/run(id=${contract.id})}" method="post"
+                                      th:action="@{/analysis/{contractId}/run(contractId=${contract.id})}" method="post"
                                       class="d-inline">
                                     <button type="submit" class="btn btn-outline-success"
                                             title="Run AI Analysis">
@@ -71,7 +71,7 @@
                                 </form>
                                 <!-- View results (if completed) -->
                                 <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
-                                   th:href="@{/analysis/{id}/results(id=${contract.id})}"
+                                   th:href="@{/analysis/{contractId}/results(contractId=${contract.id})}"
                                    class="btn btn-outline-primary" title="View Results">
                                     <i class="bi bi-eye"></i> Results
                                 </a>

@@ -11,27 +11,27 @@
     </div>
     <p class="text-muted mb-4">Ask questions about your contracts in natural language.</p>
 
-    <!-- AI TODO banner -->
-    <div class="todo-banner p-3 mb-4 d-flex align-items-start gap-3">
+    <!-- AI Status Banner -->
+    <div class="alert d-flex align-items-center gap-3 p-3 mb-4"
+         style="border-radius: 12px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24;">
         <i class="bi bi-cpu text-warning fs-4 mt-1"></i>
         <div>
-            <strong class="text-white">TODO — Requires Python AI Service</strong>
+            <strong class="text-white">Requires Python AI Service</strong>
             <p class="mb-0 text-muted small mt-1">
                 Semantic search uses FAISS vector similarity search powered by the Python microservice.
-                Results below are stub placeholders until <code>app.ai.service.enabled=true</code>.
+                Results below are stub placeholders until the AI service is enabled.
             </p>
         </div>
     </div>
 
-    <!-- Search form -->
+    <!-- Search Form -->
     <div class="card mb-4">
         <div class="card-body p-4">
-            <form th:action="@{/analysis/search}" method="post"
-                  th:object="${searchRequest}">
+            <form id="searchForm">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-4">
                         <label class="form-label fw-semibold">Contract (optional)</label>
-                        <select th:field="*{contractId}" class="form-select">
+                        <select id="contractSelect" class="form-select">
                             <option value="">— Search all contracts —</option>
                             <option th:each="c : ${contracts}"
                                     th:value="${c.id}"
@@ -40,16 +40,14 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Your question</label>
-                        <input type="text" th:field="*{query}"
+                        <input type="text" id="queryInput"
                                class="form-control"
                                placeholder="e.g. What are the penalty clauses for late payment?"
                                required/>
-                        <div th:if="${#fields.hasErrors('query')}"
-                             class="text-danger small mt-1"
-                             th:errors="*{query}"></div>
+                        <div id="queryError" class="text-danger small mt-1 d-none"></div>
                     </div>
                     <div class="col-md-2">
-                        <button type="submit" class="btn btn-primary w-100">
+                        <button type="button" class="btn btn-primary w-100" onclick="submitSearch()">
                             <i class="bi bi-search me-1"></i>Search
                         </button>
                     </div>
@@ -59,31 +57,90 @@
     </div>
 
     <!-- Error -->
-    <div th:if="${searchError}" class="alert alert-danger" th:text="${searchError}"></div>
+    <div id="searchError" class="alert alert-danger d-none"></div>
 
-    <!-- Search results -->
-    <div th:if="${searchResults}">
+    <!-- Search Results -->
+    <div id="searchResultsContainer" class="d-none">
         <div class="d-flex align-items-center gap-2 mb-3">
             <h5 class="mb-0">Results for:</h5>
-            <span class="badge bg-primary fs-6 fw-normal" th:text="'&quot;' + ${query} + '&quot;'"></span>
+            <span class="badge bg-primary fs-6 fw-normal" id="queryDisplay"></span>
         </div>
-        <div th:each="r, i : ${searchResults}" class="card mb-3">
-            <div class="card-header d-flex justify-content-between">
-                <span>
-                    <i class="bi bi-file-text me-1"></i>
-                    Match <span th:text="${i.index + 1}">1</span>
-                    — Chunk #<span th:text="${r.chunkIndex}">0</span>
-                </span>
-                <span class="badge bg-success"
-                      th:text="'Score: ' + ${#numbers.formatDecimal(r.score, 1, 3)}">Score: 0.000</span>
-            </div>
-            <div class="card-body">
-                <p th:text="${r.text}" style="white-space: pre-wrap; font-size: 0.9rem; line-height:1.6">
-                    chunk text
-                </p>
-            </div>
-        </div>
+        <div id="searchResults"></div>
     </div>
+
+    <script>
+        function submitSearch() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query || query.length < 3) {
+                const err = document.getElementById('queryError');
+                err.textContent = 'Query must be at least 3 characters';
+                err.classList.remove('d-none');
+                return;
+            }
+            document.getElementById('queryError').classList.add('d-none');
+
+            const contractId = document.getElementById('contractSelect').value || null;
+
+            fetch('/analysis/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ contractId: contractId, query: query, topK: 5 })
+            })
+            .then(resp => resp.json())
+            .then(data => {
+                if (!resp.ok) {
+                    document.getElementById('searchError').textContent = 'Error: ' + (data.message || resp.status);
+                    document.getElementById('searchError').classList.remove('d-none');
+                    return;
+                }
+                document.getElementById('searchError').classList.add('d-none');
+                document.getElementById('queryDisplay').textContent = '"' + query + '"';
+                document.getElementById('searchResultsContainer').classList.remove('d-none');
+
+                if (!data.results || data.results.length === 0) {
+                    document.getElementById('searchResults').innerHTML =
+                        '<p class="text-muted">No matching chunks found. Try a different query.</p>';
+                    return;
+                }
+
+                document.getElementById('searchResults').innerHTML = data.results.map((r, i) => `
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between">
+                            <span>
+                                <i class="bi bi-file-text me-1"></i>
+                                Match ${i + 1}
+                                — Chunk #${r.chunkIndex}
+                            </span>
+                            <span class="badge bg-success">
+                                Score: ${r.score.toFixed(3)}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <p style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.6;">
+                                ${escapeHtml(r.text)}
+                            </p>
+                        </div>
+                    </div>`).join('');
+            })
+            .catch(e => {
+                document.getElementById('searchError').textContent = 'Search failed: ' + e.message;
+                document.getElementById('searchError').classList.remove('d-none');
+            });
+        }
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        document.getElementById('queryInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitSearch();
+            }
+        });
+    </script>
 
 </th:block>
 </body>
