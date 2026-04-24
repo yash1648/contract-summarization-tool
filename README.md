@@ -1,5 +1,8 @@
 # AI Contract Summarization System
 
+[![Java CI](https://github.com/yourorg/ai-contract-system/actions/workflows/java.yml/badge.svg)](https://github.com/yourorg/ai-contract-system/actions/workflows/java.yml)
+[![Python CI](https://github.com/yourorg/ai-contract-system/actions/workflows/python.yml/badge.svg)](https://github.com/yourorg/ai-contract-system/actions/workflows/python.yml)
+
 > Intelligent contract analysis using Retrieval-Augmented Generation (RAG) with Spring Boot and FastAPI
 
 ## 📊 Overview
@@ -53,62 +56,26 @@ A production-ready web application that leverages Retrieval-Augmented Generation
 │  │  ┌─────────────┐      ┌─────────┐   │    │
 │  │  │  Routes     │─────►│  RAG     │───┘    │
 │  │  └─────────────┘      │ Pipeline  │        │
-└─────────────────────────────────────┘        │
+│  └─────────────────────────────────────┘        │
+└──────────────────────────────────────────────┘
 ```
 
 ### Core Components
 
 **Backend (Spring Boot)**
-- **Controllers**: Handle HTTP requests for uploads, analysis, and search (ContractController, AnalysisController, DashboardController)
-- **Services**: Business logic orchestration (ContractService, AiIntegrationService, AnalysisService, ChunkingService, TextExtractionService, AiHealthService)
-- **Models**: MongoDB entities (Contract, AnalysisResult, RiskReport, ContractChunk)
+- **Controllers**: Handle HTTP requests for uploads, analysis, and search
+- **Services**: Business logic orchestration (ContractService, AiIntegrationService, etc.)
+- **Models**: JPA entities for MongoDB (Contract, AnalysisResult, RiskReport)
 - **Repositories**: MongoDB data access (ContractRepository, AnalysisResultRepository)
-- **DTOs**: Data transfer objects for API communication (UploadResponseDto, AnalysisResponseDto, SearchRequestDto)
-- **Exception Handling**: GlobalExceptionHandler, custom exceptions
-- **Configuration**: AppConfig (WebClient), application.yaml settings
+- **DTOs**: Data transfer objects for API communication
+- **Exception Handling**: Custom exceptions and global error handling
 
-**AI Microservice (FastAPI on port 5000)**
-- **Routes**: REST endpoints for embedding, analysis, search, health checks, and delete operations
-- **RAG Pipeline**: Orchestrates the complete analysis workflow
-- **Embedder**: Sentence-transformers with all-MiniLM-L6-v2 model
-- **Vector Store**: FAISS similarity search with per-contract indexes
+**AI Microservice (FastAPI)**
+- **Routes**: REST endpoints for embedding, analysis, search, and health checks
+- **RAG Pipeline**: Retrieval-Augmented Generation processing
+- **Embedder**: Sentence-transformer embeddings (all-MiniLM-L6-v2)
+- **Vector Store**: FAISS similarity search
 - **Ollama Client**: LLM integration for summarization and risk analysis
-- **Models**: Pydantic schemas for request/response validation
-
-### Data Flow
-1. User uploads PDF/DOCX contract via Spring Boot controller
-2. Backend extracts text and splits into chunks (2500 chars with 100 overlap)
-3. Chunks are sent to AI service for embedding into FAISS vector store
-4. When analysis is requested, RAG pipeline performs:
-   - Summary pass: Generic queries → FAISS search → LLM summarization
-   - Risk pass: Risk-specific queries → FAISS search → LLM risk analysis
-5. Results stored in MongoDB and returned to user
-
-### API Endpoints
-
-**Contract Management**
-- `POST /upload` - Upload a contract file
-- `GET /contracts` - List all contracts with status
-- `GET /contracts/{id}` - View contract details and analysis status
-- `POST /contracts/{id}/delete` - Delete a contract
-
-**Analysis**
-- `POST /analysis/{contractId}/run` - Trigger AI analysis
-- `GET /analysis/{contractId}/results` - View analysis results
-- `GET /analysis` - List all analysis results
-
-**Semantic Search**
-- `POST /analysis/search` - Semantic similarity search (JSON body)
-
-**Health**
-- `GET /api/ai/health` - AI service health check
-
-**Direct API Access** (Python AI Service)
-- `POST /api/ai/embed` - Embed contract chunks
-- `POST /api/ai/analyze` - RAG summarization + risk analysis
-- `POST /api/ai/search` - Semantic similarity search
-- `DELETE /api/ai/contract/{id}` - Delete contract vectors
-- `GET /api/ai/health` - Health check
 
 ## 📖 Quick Start
 
@@ -134,17 +101,19 @@ The backend will start on `http://localhost:6969`
 
 ```bash
 cd ai-service
-./scripts/setup.sh
-```
-
-OR manual setup:
-```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-ollama serve &
-ollama pull llama3
+
+# Configure environment
+cp .env.example .env
+# Edit .env as needed
+
+# Download required models
+ollama pull gemma3:4b
 ollama pull all-MiniLM-L6-v2
+
+# Start the AI service
 uvicorn main:app --host 0.0.0.0 --port 5000
 ```
 
@@ -185,11 +154,36 @@ app:
 ### AI Service Configuration (`.env`)
 
 ```env
-OLLAMA_MODEL=llama3
-OLLAMA_TEMPERATURE=0.1
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gemma3:4b
 RAG_TOP_K=7
 RAG_MIN_SCORE=0.30
-EMBEDDING_MODEL=all-MiniLM-L6-v2
+```
+
+## 📝 API Usage
+
+### Upload a Contract
+
+```bash
+curl -X POST http://localhost:6969/upload \
+  -F "file=@contract.pdf" \
+  -F "name=my_contract"
+```
+
+### Analyze a Contract
+
+```bash
+# First, upload to get contract ID
+# Then analyze
+curl -X POST http://localhost:6969/contracts/{id}/analyze
+```
+
+### Search Contracts
+
+```bash
+curl -X POST http://localhost:6969/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "termination clauses", "topK": 5}'
 ```
 
 ## 🧪 Testing
@@ -227,3 +221,15 @@ pytest tests/
 ## 📄 License
 
 See LICENSE file for details.
+
+## 👥 Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## 🆘 Support
+
+For issues and questions, please refer to the detailed documentation in the `docs/` directory.
