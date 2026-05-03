@@ -13,13 +13,6 @@ import java.time.LocalDateTime;
 
 /**
  * Stores the output of the AI analysis pipeline for a contract.
- *
- * MongoDB collection: "analysis_results"
- *
- * This is a separate document from Contract to:
- *   1. Keep the contracts collection lean
- *   2. Allow re-analysis without re-uploading
- *   3. Support multiple analysis runs on the same contract (future)
  */
 @Data
 @Builder
@@ -31,52 +24,145 @@ public class AnalysisResult {
     @Id
     private String id;
 
-    /** Reference back to the parent Contract */
+    /**
+     * Reference back to the parent Contract
+     */
     @Indexed
     private String contractId;
 
-    /** Filename of the parent contract (denormalised for display convenience) */
+    /**
+     * Optional: differentiate multiple analysis runs
+     */
+    private String analysisRunId;
+
+    /**
+     * Filename of the parent contract
+     */
     private String contractFileName;
 
     /**
-     * AI-generated abstractive summary of the contract.
-     *
-     * TODO: Populated by AiIntegrationService when Python service is enabled.
-     *       Until then, this is set to a placeholder message.
+     * AI-generated summary
      */
     private String summary;
 
-    /** Structured risk report (penalty, termination, liability flags) */
-    private RiskReport riskReport;
+    /**
+     * Optional deterministic summary (recommended)
+     */
+    private String templateSummary;
 
     /**
-     * Overall risk score from 0.0 (no risk) to 10.0 (extreme risk).
-     * Computed by the Python AI service based on detected risk factors.
-     *
-     * TODO: Populated by AiIntegrationService.
+     * Structured risk report
      */
-    private double riskScore;
+    private RiskReport riskReport;
 
-    /** Human-readable risk level derived from riskScore */
-    private RiskLevel riskLevel;
+/**
+ * Score: 0.0 → 10.0
+ */
+private double riskScore;
 
-    /** Number of chunks that were retrieved for this analysis (RAG context) */
-    private int chunksUsed;
+/**
+ * Human-readable risk level (derived from riskScore)
+ */
+private RiskLevel riskLevel;
+
+/**
+ * Number of retrieved RAG chunks
+ */
+private int chunksUsed;
+
+    /**
+     * Structured extracted data
+     */
+    @Builder.Default
+    private ExtractedData extractedData = new ExtractedData();
 
     @CreatedDate
+    @Indexed
     private LocalDateTime analyzedAt;
 
-    /** ── Nested enum ─────────────────────────────────────── */
+    /**
+     * ── Risk Level Enum ─────────────────────────────
+     */
     public enum RiskLevel {
-        LOW,      // score 0.0 – 3.3
-        MEDIUM,   // score 3.4 – 6.6
-        HIGH      // score 6.7 – 10.0
+        LOW,
+        MEDIUM,
+        HIGH
     }
 
-    /** Convenience factory — derives RiskLevel from a numeric score */
+/**
+ * Derived risk level - returns stored value if set, otherwise computes from score
+ */
+public RiskLevel getRiskLevel() {
+    if (this.riskLevel != null) {
+        return this.riskLevel;
+    }
+    return levelFromScore(this.riskScore);
+}
+
+    /**
+     * Static mapper
+     */
     public static RiskLevel levelFromScore(double score) {
         if (score <= 3.3) return RiskLevel.LOW;
         if (score <= 6.6) return RiskLevel.MEDIUM;
         return RiskLevel.HIGH;
+    }
+
+    /**
+     * Clamp risk score between 0 and 10
+     */
+    public void setRiskScore(double riskScore) {
+        this.riskScore = Math.max(0, Math.min(10, riskScore));
+    }
+
+    /**
+     * Deterministic summary (no hallucination)
+     */
+    public String generateTemplateSummary() {
+
+        ExtractedData data = this.extractedData;
+
+        if (data == null || data.isEmpty()) {
+            return "No structured data could be extracted from this contract.";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        if (!data.getParties().isEmpty()) {
+            sb.append("PARTIES:\n");
+            data.getParties().forEach(p -> sb.append("  • ").append(p).append("\n"));
+            sb.append("\n");
+        }
+
+        if (!data.getObligations().isEmpty()) {
+            sb.append("KEY OBLIGATIONS:\n");
+            data.getObligations().forEach(o -> sb.append("  • ").append(o).append("\n"));
+            sb.append("\n");
+        }
+
+        if (!data.getPaymentTerms().isEmpty()) {
+            sb.append("PAYMENT TERMS:\n");
+            data.getPaymentTerms().forEach(p -> sb.append("  • ").append(p).append("\n"));
+            sb.append("\n");
+        }
+
+        if (!data.getDates().isEmpty()) {
+            sb.append("KEY DATES:\n");
+            data.getDates().forEach(d -> sb.append("  • ").append(d).append("\n"));
+            sb.append("\n");
+        }
+
+        if (!data.getPenalties().isEmpty()) {
+            sb.append("PENALTIES:\n");
+            data.getPenalties().forEach(p -> sb.append("  • ").append(p).append("\n"));
+            sb.append("\n");
+        }
+
+        if (!data.getTermination().isEmpty()) {
+            sb.append("TERMINATION CONDITIONS:\n");
+            data.getTermination().forEach(t -> sb.append("  • ").append(t).append("\n"));
+        }
+
+        return sb.toString().trim();
     }
 }

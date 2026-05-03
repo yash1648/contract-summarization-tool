@@ -1,12 +1,12 @@
 """
 models/schemas.py
-=================
+================
 Pydantic request / response schemas.
 
 These MUST exactly match the JSON shapes expected by Spring Boot's
-AiIntegrationService — any field name change here will break integration.
+AiIntegrationService - any field name change here will break integration.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 
 
@@ -19,7 +19,7 @@ class ChunkItem(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/embed
+# POST /api/ai/embed
 # ════════════════════════════════════════════════════════════════════════════
 
 class EmbedRequest(BaseModel):
@@ -35,7 +35,7 @@ class EmbedResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/analyze
+# POST /api/ai/analyze (legacy - kept for backward compatibility)
 # ════════════════════════════════════════════════════════════════════════════
 
 class AnalyzeRequest(BaseModel):
@@ -54,11 +54,55 @@ class AnalyzeResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/search
+# POST /api/ai/extract — Extraction-first pipeline (new)
+# ════════════════════════════════════════════════════════════════════════════
+
+class ChunkExtractionData(BaseModel):
+    """
+    Extracted structured data for a single chunk.
+    Uses snake_case for JSON compatibility with Java Jackson.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    parties: list[str] = Field(default_factory=list)
+    obligations: list[str] = Field(default_factory=list)
+    payment_terms: list[str] = Field(default_factory=list)
+    dates: list[str] = Field(default_factory=list)
+    penalties: list[str] = Field(default_factory=list)
+    termination: list[str] = Field(default_factory=list)
+
+
+class ChunkExtractionResult(BaseModel):
+    """Result for one chunk with its extracted data."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    chunk_id: int
+    data: ChunkExtractionData
+
+
+class ExtractRequest(BaseModel):
+    """Request for extraction-first analysis."""
+    contractId: str
+    chunkTexts: list[str]
+
+
+class ExtractResponse(BaseModel):
+    """
+    Response containing per-chunk structured extractions.
+    Java will merge and deduplicate these.
+    """
+    contractId: str
+    chunks: list[ChunkExtractionResult]
+    totalChunks: int
+    processingTimeMs: int
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# POST /api/ai/search
 # ════════════════════════════════════════════════════════════════════════════
 
 class SearchRequest(BaseModel):
-    contractId: Optional[str] = None   # None = search across all contracts
+    contractId: Optional[str] = None  # None = search across all contracts
     query: str
     topK: int = Field(5, ge=1, le=20)
 
@@ -77,7 +121,7 @@ class SearchResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  DELETE /api/ai/contract/{contractId}
+# DELETE /api/ai/contract/{contractId}
 # ════════════════════════════════════════════════════════════════════════════
 
 class DeleteResponse(BaseModel):
@@ -87,7 +131,7 @@ class DeleteResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  GET /api/ai/health
+# GET /api/ai/health
 # ════════════════════════════════════════════════════════════════════════════
 
 class HealthResponse(BaseModel):

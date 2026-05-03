@@ -73,7 +73,7 @@ public class ContractController {
             final String contractId = response.getContractId();
             analysisExecutor.submit(() -> {
                 try {
-                    log.info("Starting async analysis for contractId={}", contractId);
+                    log.info("Starting asyMultipartFile file analysis for contractId={}", contractId);
                     analysisService.analyzeContract(contractId);
                     log.info("Async analysis completed for contractId={}", contractId);
                 } catch (Exception e) {

@@ -2,10 +2,10 @@ spring:
   application:
     name: ai-assistant-backend
 
-  # MongoDB
+# MongoDB
 
   mongodb:
-      uri: mongodb://admin:password@localhost:27017/ai_assistant_db?authSource=admin
+    uri: ${MONGODB_URI:mongodb://admin:password@localhost:27017/ai_assistant_db?authSource=admin}
 
   servlet:
     multipart:
@@ -47,6 +47,7 @@ app:
       health-timeout-seconds: 5
       max-retries: 0
       retry-delay-ms: 1000
+      use-extraction-first: true
 
 # Server port
 server:

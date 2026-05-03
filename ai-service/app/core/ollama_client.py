@@ -81,6 +81,32 @@ CONTRACT EXCERPTS:
 {{"riskScore":<0.0-10.0>,"penaltyClauses":["..."],"terminationRisks":["..."],"liabilityIssues":["..."],"otherFlags":["..."]}}
 """
 
+# ── Extraction-first prompt ───────────────────────────────────────────────────
+
+EXTRACTION_PROMPT = """\
+Extract ONLY the following fields from the given contract chunk.
+Return STRICT JSON only. No explanations. No markdown.
+
+CONTRACT CHUNK:
+{chunk}
+
+Return this exact JSON structure:
+{{
+  "parties": [],
+  "obligations": [],
+  "payment_terms": [],
+  "dates": [],
+  "penalties": [],
+  "termination": []
+}}
+
+Rules:
+- Extract only factual information present in the chunk
+- Use empty arrays [] for fields with no data
+- Keep extracted text concise (under 100 characters per item)
+- Normalize: lowercase, trim whitespace
+- Do NOT hallucinate or infer information not in the chunk"""
+
 # ── Client ───────────────────────────────────────────────────────────────────
 
 class OllamaClient:
@@ -134,9 +160,24 @@ class OllamaClient:
         raw = self._chat(prompt)
         return self._parse_risk_json(raw)
 
+    def extract_structured(self, mini_chunk: str) -> dict:
+        """
+        Extract structured fields from a filtered mini-chunk using lightweight model.
+        Returns dict with keys: parties, obligations, payment_terms, dates, penalties, termination
+        """
+        prompt = EXTRACTION_PROMPT.format(chunk=mini_chunk)
+        logger.debug(f"Extracting structured data ({len(mini_chunk)} chars)")
+        raw = self._chat(
+            prompt,
+            model=settings.extraction_model,
+            temperature=settings.extraction_temperature,
+            num_predict=settings.extraction_max_tokens,
+        )
+        return self._parse_extraction_json(raw)
+
     def is_reachable(self) -> bool:
         """
-        Check if Ollama is reachable and model is available.
+        Check if Ollama is reachable and both required models are available.
         Supports both dict and object responses.
         """
         try:
@@ -149,15 +190,23 @@ class OllamaClient:
                 model_list = getattr(models, "models", [])
                 names = [getattr(m, "model", "") for m in model_list]
 
-            reachable = any(settings.ollama_model in n for n in names)
-
-            if not reachable:
+            # Check main model
+            main_ok = any(settings.ollama_model in n for n in names)
+            if not main_ok:
                 logger.warning(
-                    f"Ollama is up but model '{settings.ollama_model}' not found. "
+                    f"Ollama is up but main model '{settings.ollama_model}' not found. "
                     f"Available: {names}. Run: ollama pull {settings.ollama_model}"
                 )
 
-            return reachable
+            # Check extraction model
+            extraction_ok = any(settings.extraction_model in n for n in names)
+            if not extraction_ok:
+                logger.warning(
+                    f"Ollama is up but extraction model '{settings.extraction_model}' not found. "
+                    f"Available: {names}. Run: ollama pull {settings.extraction_model}"
+                )
+
+            return main_ok and extraction_ok
 
         except Exception as e:
             logger.warning(f"Ollama not reachable: {e}")
@@ -165,13 +214,19 @@ class OllamaClient:
 
     # ── Private helpers ──────────────────────────────────────────────────────
 
-    def _chat(self, prompt: str) -> str:
+    def _chat(
+        self,
+        prompt: str,
+        model: str | None = None,
+        temperature: float | None = None,
+        num_predict: int | None = None,
+    ) -> str:
         response = self._client.chat(
-            model=settings.ollama_model,
+            model=model or settings.ollama_model,
             messages=[{"role": "user", "content": prompt}],
             options={
-                "temperature": settings.ollama_temperature,
-                "num_predict": settings.ollama_max_tokens,
+                "temperature": temperature if temperature is not None else settings.ollama_temperature,
+                "num_predict": num_predict if num_predict is not None else settings.ollama_max_tokens,
             },
         )
 
@@ -242,11 +297,43 @@ class OllamaClient:
             return []
 
         return {
-            "riskScore":        risk_score,
-            "penaltyClauses":   ensure_list(data.get("penaltyClauses")),
+            "riskScore": risk_score,
+            "penaltyClauses": ensure_list(data.get("penaltyClauses")),
             "terminationRisks": ensure_list(data.get("terminationRisks")),
-            "liabilityIssues":  ensure_list(data.get("liabilityIssues")),
-            "otherFlags":       ensure_list(data.get("otherFlags")),
+            "liabilityIssues": ensure_list(data.get("liabilityIssues")),
+            "otherFlags": ensure_list(data.get("otherFlags")),
+        }
+
+    @staticmethod
+    def _parse_extraction_json(raw: str) -> dict:
+        """
+        Parse the structured extraction JSON response.
+        Returns dict with keys: parties, obligations, payment_terms, dates, penalties, termination
+        """
+        cleaned = re.sub(r"```(?:json)?", "", raw).strip().strip("`").strip()
+
+        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+        if match:
+            cleaned = match.group(0)
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse extraction JSON: {e}\nRaw: {raw[:500]}")
+            data = {}
+
+        def ensure_list(val):
+            if isinstance(val, list):
+                return [str(x).strip() for x in val if x and str(x).strip()]
+            return []
+
+        return {
+            "parties": ensure_list(data.get("parties", [])),
+            "obligations": ensure_list(data.get("obligations", [])),
+            "payment_terms": ensure_list(data.get("payment_terms", [])),
+            "dates": ensure_list(data.get("dates", [])),
+            "penalties": ensure_list(data.get("penalties", [])),
+            "termination": ensure_list(data.get("termination", [])),
         }
 
 
