@@ -1,17 +1,16 @@
 package com.grim.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.grim.backend.model.AnalysisResult;
 import com.grim.backend.model.ContractChunk;
+import com.grim.backend.model.ExtractedData;
 import com.grim.backend.model.RiskReport;
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -23,18 +22,15 @@ import java.util.Map;
 /**
  * Live bridge between Spring Boot and the Python AI microservice.
  *
- * All four endpoints the Python service exposes are called here:
- *   POST   /api/ai/embed
- *   POST   /api/ai/analyze
- *   POST   /api/ai/search
- *   DELETE /api/ai/contract/{id}
+ * Supports two analysis modes:
+ * 1. Legacy (/api/ai/analyze) - Map-reduce summarization + RAG risk
+ * 2. Extraction-first (/api/ai/extract) - Sentence filtering + structured extraction
  *
  * Error handling strategy:
- *   - Network errors (connection refused, timeout) → throw AiServiceException
- *     so callers can decide to retry or fall back.
- *   - 4xx from Python → re-throw with the Python error body included.
- *   - 5xx from Python → throw AiServiceException (Python-side crash).
- *   - Retries: up to maxRetries attempts with retryDelayMs pause between them.
+ * - Network errors (connection refused, timeout) → throw AiServiceException
+ * - 4xx from Python → re-throw with the Python error body included
+ * - 5xx from Python → throw AiServiceException (Python-side crash)
+ * - Retries: up to maxRetries attempts with retryDelayMs pause between them
  *
  * When app.ai.service.enabled=false every method falls back to a stub so
  * the Spring Boot app still starts and serves pages without Python running.
@@ -58,30 +54,33 @@ public class AiIntegrationService {
     @Value("${app.ai.service.retry-delay-ms:1000}")
     private long retryDelayMs;
 
+    @Value("${app.ai.service.use-extraction-first:true}")
+    private boolean useExtractionFirst;
+
     // ══════════════════════════════════════════════════════════
-    //  1. EMBED — POST /api/ai/embed
+    // 1. EMBED — POST /api/ai/embed
     // ══════════════════════════════════════════════════════════
 
     /**
      * Send contract chunks to Python for sentence-transformer embedding + FAISS storage.
      *
      * Python request:
-     *   { "contractId": "...", "chunks": [{ "index": 0, "text": "..." }] }
+     * { "contractId": "...", "chunks": [{ "index": 0, "text": "..." }] }
      *
      * Python response:
-     *   { "contractId": "...", "embeddingIds": ["uuid1", ...], "chunksEmbedded": 5 }
+     * { "contractId": "...", "embeddingIds": ["uuid1", ...], "chunksEmbedded": 5 }
      *
      * @return map of chunkIndex → FAISS embeddingId (empty if AI disabled / error)
      */
     public Map<Integer, String> sendChunksForEmbedding(String contractId,
-                                                       List<ContractChunk> chunks) {
+                                                        List<ContractChunk> chunks) {
         if (!aiServiceEnabled) {
             log.warn("[AI DISABLED] sendChunksForEmbedding skipped for contractId={}", contractId);
             return Map.of();
         }
         if (chunks == null || chunks.isEmpty()) return Map.of();
 
-        log.info("[embed] Sending {} chunks → Python  contractId={}", chunks.size(), contractId);
+        log.info("[embed] Sending {} chunks → Python contractId={}", chunks.size(), contractId);
 
         List<Map<String, Object>> chunkPayload = chunks.stream()
                 .map(c -> Map.<String, Object>of("index", c.getIndex(), "text", c.getText()))
@@ -103,22 +102,37 @@ public class AiIntegrationService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  2. ANALYZE — POST /api/ai/analyze
+    // 2. ANALYZE — POST /api/ai/analyze (legacy) or /api/ai/extract (new)
     // ══════════════════════════════════════════════════════════
 
     /**
-     * Run full RAG analysis: Python retrieves relevant chunks from FAISS,
-     * runs two Ollama LLM passes (summary + risk), and returns structured results.
+     * Run contract analysis using extraction-first pipeline (preferred).
      *
-     * Python request:
-     *   { "contractId": "...", "chunkTexts": ["chunk1", "chunk2", ...] }
+     * Python /api/ai/extract request:
+     * { "contractId": "...", "chunkTexts": ["chunk1", "chunk2", ...] }
      *
      * Python response:
-     *   { "summary": "...", "riskScore": 4.2,
-     *     "penaltyClauses": [...], "terminationRisks": [...],
-     *     "liabilityIssues": [...], "otherFlags": [...], "chunksUsed": 7 }
+     * {
+     *   "contractId": "...",
+     *   "chunks": [
+     *     {
+     *       "chunk_id": 0,
+     *       "data": {
+     *         "parties": [...],
+     *         "obligations": [...],
+     *         "payment_terms": [...],
+     *         "dates": [...],
+     *         "penalties": [...],
+     *         "termination": [...]
+     *       }
+     *     },
+     *     ...
+     *   ],
+     *   "totalChunks": 12,
+     *   "processingTimeMs": 1234
+     * }
      *
-     * @throws AiServiceException if the Python service is unreachable or returns an error
+     * Java aggregates all chunk extractions into a unified ExtractedData.
      */
     public AnalysisResult analyze(String contractId,
                                   String contractFileName,
@@ -128,35 +142,171 @@ public class AiIntegrationService {
             return buildStubResult(contractId, contractFileName, chunks.size());
         }
 
-        log.info("[analyze] Starting RAG analysis  contractId={}  chunks={}", contractId, chunks.size());
+        log.info("[analyze] Starting analysis contractId={} chunks={} extractionFirst={}",
+                contractId, chunks.size(), useExtractionFirst);
 
         List<String> chunkTexts = chunks.stream().map(ContractChunk::getText).toList();
+
+        if (useExtractionFirst) {
+            return analyzeWithExtraction(contractId, contractFileName, chunkTexts, chunks.size());
+        } else {
+            return analyzeLegacy(contractId, contractFileName, chunkTexts, chunks.size());
+        }
+    }
+
+    /**
+     * Extraction-first analysis pipeline.
+     * Calls /api/ai/extract, aggregates results, generates template summary.
+     */
+    private AnalysisResult analyzeWithExtraction(String contractId,
+                                                  String contractFileName,
+                                                  List<String> chunkTexts,
+                                                  int totalChunks) {
+        Map<String, Object> body = Map.of("contractId", contractId, "chunkTexts", chunkTexts);
+
+        JsonNode response = callWithRetry("/api/ai/extract", body, "extract");
+
+        if (response == null) {
+            throw new AiServiceException("[extract] Null response body from Python");
+        }
+
+        // Parse and aggregate extractions from all chunks
+        ExtractedData aggregated = new ExtractedData();
+        int chunksProcessed = 0;
+
+        JsonNode chunksNode = response.path("chunks");
+        if (chunksNode.isArray()) {
+            for (JsonNode chunk : chunksNode) {
+                int chunkId = chunk.path("chunk_id").asInt(-1);
+                if (chunkId < 0) continue;
+
+                JsonNode data = chunk.path("data");
+                ExtractedData chunkData = parseExtractedData(data);
+                aggregated.merge(chunkData);
+                chunksProcessed++;
+            }
+        }
+
+        // Build result with aggregated extraction
+        AnalysisResult result = AnalysisResult.builder()
+                .contractId(contractId)
+                .contractFileName(contractFileName)
+                .extractedData(aggregated != null ? aggregated : new ExtractedData())
+                .chunksUsed(chunksProcessed)
+                .analyzedAt(LocalDateTime.now())
+                .build();
+
+        // Generate template-based summary (deterministic, no hallucination)
+        result.setSummary(result.generateTemplateSummary());
+
+        // Compute risk score from extracted penalties and termination clauses
+        result.setRiskScore(computeRiskScore(aggregated));
+        result.setRiskLevel(AnalysisResult.levelFromScore(result.getRiskScore()));
+
+        // Build risk report from extracted data
+        result.setRiskReport(buildRiskReport(aggregated));
+
+        log.info("[extract] Done contractId={} riskScore={} chunksProcessed={}",
+                contractId, result.getRiskScore(), chunksProcessed);
+
+        return result;
+    }
+
+    /**
+     * Parse extracted data from a single chunk's JSON.
+     */
+    private ExtractedData parseExtractedData(JsonNode data) {
+        ExtractedData.ExtractedDataBuilder builder = ExtractedData.builder();
+
+        builder.parties(jsonArrayToStringList(data.path("parties")));
+        builder.obligations(jsonArrayToStringList(data.path("obligations")));
+        builder.paymentTerms(jsonArrayToStringList(data.path("payment_terms")));
+        builder.dates(jsonArrayToStringList(data.path("dates")));
+        builder.penalties(jsonArrayToStringList(data.path("penalties")));
+        builder.termination(jsonArrayToStringList(data.path("termination")));
+
+        return builder.build();
+    }
+
+    /**
+     * Compute risk score from extracted data.
+     * Higher score for penalties and termination risks.
+     */
+    private double computeRiskScore(ExtractedData data) {
+        double score = 0.0;
+
+        // Penalties contribute to risk
+        score += Math.min(data.getPenalties().size() * 0.5, 2.5);
+
+        // Termination risks
+        score += Math.min(data.getTermination().size() * 0.3, 1.5);
+
+        // Obligations (moderate risk if many)
+        if (data.getObligations().size() > 10) {
+            score += 1.0;
+        }
+
+        // Payment terms (if specific amounts/percentages mentioned)
+        for (String pt : data.getPaymentTerms()) {
+            if (pt.matches(".*\\d+(\\.\\d+)?%.*") || pt.matches(".*\\$\\d+.*")) {
+                score += 0.2;
+                if (score >= 10.0) break;
+            }
+        }
+
+        return Math.min(score, 10.0);
+    }
+
+    /**
+     * Build risk report from extracted data.
+     */
+    private RiskReport buildRiskReport(ExtractedData data) {
+        return RiskReport.builder()
+                .penaltyClauses(data.getPenalties())
+                .terminationRisks(data.getTermination())
+                .liabilityIssues(data.getObligations().stream()
+                        .filter(o -> o.toLowerCase().contains("liability")
+                                || o.toLowerCase().contains("indemnif")
+                                || o.toLowerCase().contains("damages"))
+                        .toList())
+                .otherFlags(new ArrayList<>())
+                .build();
+    }
+
+    /**
+     * Legacy map-reduce summarization analysis.
+     * Calls /api/ai/analyze for backward compatibility.
+     */
+    private AnalysisResult analyzeLegacy(String contractId,
+                                          String contractFileName,
+                                          List<String> chunkTexts,
+                                          int totalChunks) {
         Map<String, Object> body = Map.of("contractId", contractId, "chunkTexts", chunkTexts);
 
         JsonNode response = callWithRetry("/api/ai/analyze", body, "analyze");
 
         AnalysisResult result = parseAnalysisResponse(contractId, contractFileName, response);
-        log.info("[analyze] Done  contractId={}  riskScore={}  chunksUsed={}",
+        log.info("[analyze] Done contractId={} riskScore={} chunksUsed={}",
                 contractId, result.getRiskScore(), result.getChunksUsed());
         return result;
     }
 
     // ══════════════════════════════════════════════════════════
-    //  3. SEARCH — POST /api/ai/search
+    // 3. SEARCH — POST /api/ai/search
     // ══════════════════════════════════════════════════════════
 
     /**
      * Encode the user's query and search FAISS for semantically similar chunks.
      *
      * Python request:
-     *   { "contractId": "...", "query": "...", "topK": 5 }
+     * { "contractId": "...", "query": "...", "topK": 5 }
      *
      * Python response:
-     *   { "results": [{ "chunkIndex": 2, "text": "...", "score": 0.91 }], "count": 1 }
+     * { "results": [{ "chunkIndex": 2, "text": "...", "score": 0.91 }], "count": 1 }
      */
     public List<Map<String, Object>> semanticSearch(String contractId,
-                                                    String query,
-                                                    int topK) {
+                                                     String query,
+                                                     int topK) {
         if (!aiServiceEnabled) {
             log.warn("[AI DISABLED] semanticSearch skipped for query='{}'", query);
             return List.of(Map.of(
@@ -180,8 +330,8 @@ public class AiIntegrationService {
             for (JsonNode node : response.get("results")) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("chunkIndex", node.path("chunkIndex").asInt(0));
-                item.put("text",       node.path("text").asText(""));
-                item.put("score",      node.path("score").asDouble(0.0));
+                item.put("text", node.path("text").asText(""));
+                item.put("score", node.path("score").asDouble(0.0));
                 if (node.has("contractId")) item.put("contractId", node.path("contractId").asText());
                 results.add(item);
             }
@@ -191,7 +341,7 @@ public class AiIntegrationService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  4. DELETE — DELETE /api/ai/contract/{id}
+    // 4. DELETE — DELETE /api/ai/contract/{id}
     // ══════════════════════════════════════════════════════════
 
     /**
@@ -219,7 +369,7 @@ public class AiIntegrationService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  INTERNAL — retry loop + parsing helpers
+    // INTERNAL — retry loop + parsing helpers
     // ══════════════════════════════════════════════════════════
 
     /**
@@ -238,26 +388,21 @@ public class AiIntegrationService {
                         .onStatus(
                                 status -> status.is4xxClientError(),
                                 resp -> resp.bodyToMono(String.class).flatMap(errBody ->
-                                        Mono.error(new AiServiceException("[" + operation + "] Python returned "
+                                        reactor.core.publisher.Mono.error(new AiServiceException("[" + operation + "] Python returned "
                                                 + resp.statusCode().value() + ": " + errBody)))
                         )
                         .onStatus(
                                 status -> status.is5xxServerError(),
                                 resp -> resp.bodyToMono(String.class).flatMap(errBody ->
-                                        Mono.error(new AiServiceException("[" + operation + "] Python server error "
+                                        reactor.core.publisher.Mono.error(new AiServiceException("[" + operation + "] Python server error "
                                                 + resp.statusCode().value() + ": " + errBody)))
                         )
                         .bodyToMono(String.class)
                         .timeout(Duration.ofSeconds(timeoutSeconds))
                         .block();
 
-                // 🔥 ADD THIS (CRITICAL)
-                log.info("[{}] RAW RESPONSE: {}", operation, response);
-
-                // 🔥 Parse manually
                 ObjectMapper mapper = new ObjectMapper();
                 return mapper.readTree(response);
-
             } catch (Exception e) {
                 lastException = e;
                 String simplified = simplifyError(e);
@@ -281,8 +426,8 @@ public class AiIntegrationService {
     }
 
     private AnalysisResult parseAnalysisResponse(String contractId,
-                                                 String contractFileName,
-                                                 JsonNode resp) {
+                                                  String contractFileName,
+                                                  JsonNode resp) {
         if (resp == null)
             throw new AiServiceException("[analyze] Null response body from Python");
 
@@ -300,16 +445,16 @@ public class AiIntegrationService {
                 .contractFileName(contractFileName)
                 .summary(resp.path("summary").asText("No summary returned."))
                 .riskScore(riskScore)
-                .riskLevel(AnalysisResult.levelFromScore(riskScore))
                 .riskReport(riskReport)
                 .chunksUsed(resp.path("chunksUsed").asInt(0))
+                .extractedData(new ExtractedData())
                 .analyzedAt(LocalDateTime.now())
                 .build();
     }
 
     private AnalysisResult buildStubResult(String contractId,
-                                           String contractFileName,
-                                           int chunkCount) {
+                                            String contractFileName,
+                                            int chunkCount) {
         return AnalysisResult.builder()
                 .contractId(contractId)
                 .contractFileName(contractFileName)
@@ -318,9 +463,9 @@ public class AiIntegrationService {
                         + "Set app.ai.service.enabled=true and start the Python AI service "
                         + "on port 5000 to activate analysis.")
                 .riskScore(0.0)
-                .riskLevel(AnalysisResult.RiskLevel.LOW)
                 .riskReport(RiskReport.builder().build())
                 .chunksUsed(0)
+                .extractedData(new ExtractedData())
                 .analyzedAt(LocalDateTime.now())
                 .build();
     }
@@ -328,7 +473,20 @@ public class AiIntegrationService {
     private List<String> jsonArrayToList(JsonNode node) {
         List<String> list = new ArrayList<>();
         if (node != null && node.isArray()) {
-            for (JsonNode item : node) { if (!item.asText().isBlank()) list.add(item.asText()); }
+            for (JsonNode item : node) {
+                if (!item.asText().isBlank()) list.add(item.asText());
+            }
+        }
+        return list;
+    }
+
+    private List<String> jsonArrayToStringList(JsonNode node) {
+        List<String> list = new ArrayList<>();
+        if (node != null && node.isArray()) {
+            for (JsonNode item : node) {
+                String text = item.asText().trim();
+                if (!text.isEmpty()) list.add(text);
+            }
         }
         return list;
     }
@@ -347,7 +505,11 @@ public class AiIntegrationService {
     // ── Custom exception ─────────────────────────────────────────────────────
 
     public static class AiServiceException extends RuntimeException {
-        public AiServiceException(String message) { super(message); }
-        public AiServiceException(String message, Throwable cause) { super(message, cause); }
+        public AiServiceException(String message) {
+            super(message);
+        }
+        public AiServiceException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }

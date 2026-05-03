@@ -1,15 +1,16 @@
 """
 api/routes.py
-=============
-FastAPI router defining all four endpoints expected by Spring Boot's
+============
+FastAPI router defining all endpoints expected by Spring Boot's
 AiIntegrationService.
 
 Routes:
-    POST   /api/ai/embed                  → embed chunks into FAISS
-    POST   /api/ai/analyze                → RAG summarization + risk
-    POST   /api/ai/search                 → semantic similarity search
-    DELETE /api/ai/contract/{contractId}  → delete contract vectors
-    GET    /api/ai/health                 → health / readiness check
+POST /api/ai/embed → embed chunks into FAISS
+POST /api/ai/analyze → RAG summarization + risk (legacy)
+POST /api/ai/extract → extraction-first analysis (new, preferred)
+POST /api/ai/search → semantic similarity search
+DELETE /api/ai/contract/{contractId} → delete contract vectors
+GET /api/ai/health → health / readiness check
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from app.models.schemas import (
     AnalyzeRequest, AnalyzeResponse,
     SearchRequest, SearchResponse,
     DeleteResponse, HealthResponse,
+    ExtractRequest, ExtractResponse,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
@@ -34,9 +36,8 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 # Thread pool for running blocking (CPU/IO) calls from async endpoints
 _executor = ThreadPoolExecutor(max_workers=4)
 
-
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/embed
+# POST /api/ai/embed
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.post(
@@ -51,20 +52,20 @@ _executor = ThreadPoolExecutor(max_workers=4)
 async def embed_chunks(request: EmbedRequest) -> EmbedResponse:
     """
     Request body (from AiIntegrationService.sendChunksForEmbedding):
-        {
-          "contractId": "...",
-          "chunks": [{ "index": 0, "text": "..." }, ...]
-        }
+    {
+        "contractId": "...",
+        "chunks": [{ "index": 0, "text": "..." }, ...]
+    }
 
     Response (consumed by AiIntegrationService):
-        {
-          "contractId": "...",
-          "embeddingIds": ["uuid1", "uuid2", ...],
-          "chunksEmbedded": 12
-        }
+    {
+        "contractId": "...",
+        "embeddingIds": ["uuid1", "uuid2", ...],
+        "chunksEmbedded": 12
+    }
     """
     logger.info(
-        f"POST /embed  contractId={request.contractId}  "
+        f"POST /embed contractId={request.contractId} "
         f"chunks={len(request.chunks)}"
     )
     if not request.chunks:
@@ -82,42 +83,40 @@ async def embed_chunks(request: EmbedRequest) -> EmbedResponse:
 
     return result
 
-
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/analyze
+# POST /api/ai/analyze (legacy - kept for backward compatibility)
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.post(
     "/analyze",
     response_model=AnalyzeResponse,
-    summary="RAG-based contract analysis",
+    summary="RAG-based contract analysis (legacy)",
     description=(
-        "Retrieves relevant chunks from FAISS using multiple queries, then runs "
-        "two Ollama LLM passes: one for summarization, one for risk analysis. "
-        "Falls back to raw chunkTexts if the FAISS index is missing."
+        "Legacy map-reduce summarization + RAG risk analysis. "
+        "Prefer /api/ai/extract for new implementations."
     ),
 )
 async def analyze_contract(request: AnalyzeRequest) -> AnalyzeResponse:
     """
     Request body (from AiIntegrationService.analyze):
-        {
-          "contractId": "...",
-          "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
-        }
+    {
+        "contractId": "...",
+        "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
+    }
 
     Response:
-        {
-          "summary": "...",
-          "riskScore": 4.2,
-          "penaltyClauses": [...],
-          "terminationRisks": [...],
-          "liabilityIssues": [...],
-          "otherFlags": [...],
-          "chunksUsed": 7
-        }
+    {
+        "summary": "...",
+        "riskScore": 4.2,
+        "penaltyClauses": [...],
+        "terminationRisks": [...],
+        "liabilityIssues": [...],
+        "otherFlags": [...],
+        "chunksUsed": 7
+    }
     """
     logger.info(
-        f"POST /analyze  contractId={request.contractId}  "
+        f"POST /analyze contractId={request.contractId} "
         f"rawChunks={len(request.chunkTexts)}"
     )
     if not request.chunkTexts:
@@ -135,9 +134,72 @@ async def analyze_contract(request: AnalyzeRequest) -> AnalyzeResponse:
 
     return result
 
+# ════════════════════════════════════════════════════════════════════════════
+# POST /api/ai/extract — Extraction-first pipeline (new, preferred)
+# ════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/extract",
+    response_model=ExtractResponse,
+    summary="Extraction-first contract analysis",
+    description=(
+        "Lightweight extraction pipeline optimized for low-resource machines. "
+        "1. Splits chunks into sentences "
+        "2. Filters by cosine similarity "
+        "3. Extracts structured JSON using lightweight model "
+        "4. Returns per-chunk structured data for Java to merge"
+    ),
+)
+async def extract_contract(request: ExtractRequest) -> ExtractResponse:
+    """
+    Request body (from AiIntegrationService.analyze):
+    {
+        "contractId": "...",
+        "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
+    }
+
+    Response:
+    {
+        "contractId": "...",
+        "chunks": [
+            {
+                "chunk_id": 0,
+                "data": {
+                    "parties": [...],
+                    "obligations": [...],
+                    "payment_terms": [...],
+                    "dates": [...],
+                    "penalties": [...],
+                    "termination": [...]
+                }
+            },
+            ...
+        ],
+        "totalChunks": 12,
+        "processingTimeMs": 1234
+    }
+    """
+    logger.info(
+        f"POST /extract contractId={request.contractId} "
+        f"rawChunks={len(request.chunkTexts)}"
+    )
+    if not request.chunkTexts:
+        raise HTTPException(status_code=400, detail="chunkTexts list is empty")
+
+    import asyncio
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(
+            _executor, lambda: rag_pipeline.extract(request)
+        )
+    except Exception as e:
+        logger.exception(f"extract failed for {request.contractId}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return result
 
 # ════════════════════════════════════════════════════════════════════════════
-#  POST /api/ai/search
+# POST /api/ai/search
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.post(
@@ -152,25 +214,25 @@ async def analyze_contract(request: AnalyzeRequest) -> AnalyzeResponse:
 async def semantic_search(request: SearchRequest) -> SearchResponse:
     """
     Request body (from AiIntegrationService.semanticSearch):
-        {
-          "contractId": "...",   ← optional
-          "query": "...",
-          "topK": 5
-        }
+    {
+        "contractId": "...", ← optional
+        "query": "...",
+        "topK": 5
+    }
 
     Response:
-        {
-          "results": [
+    {
+        "results": [
             { "chunkIndex": 2, "text": "...", "score": 0.91, "contractId": "..." },
             ...
-          ],
-          "query": "...",
-          "count": 5
-        }
+        ],
+        "query": "...",
+        "count": 5
+    }
     """
     logger.info(
-        f"POST /search  query='{request.query}'  "
-        f"contractId={request.contractId}  topK={request.topK}"
+        f"POST /search query='{request.query}' "
+        f"contractId={request.contractId} topK={request.topK}"
     )
 
     import asyncio
@@ -185,9 +247,8 @@ async def semantic_search(request: SearchRequest) -> SearchResponse:
 
     return result
 
-
 # ════════════════════════════════════════════════════════════════════════════
-#  DELETE /api/ai/contract/{contractId}
+# DELETE /api/ai/contract/{contractId}
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.delete(
@@ -206,7 +267,7 @@ async def delete_contract(
     Called by AiIntegrationService.deleteContractVectors.
 
     Response:
-        { "deleted": true, "contractId": "...", "vectorsRemoved": 12 }
+    { "deleted": true, "contractId": "...", "vectorsRemoved": 12 }
     """
     logger.info(f"DELETE /contract/{contractId}")
     try:
@@ -216,9 +277,8 @@ async def delete_contract(
         raise HTTPException(status_code=500, detail=str(e))
     return result
 
-
 # ════════════════════════════════════════════════════════════════════════════
-#  GET /api/ai/health
+# GET /api/ai/health
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.get(
@@ -229,9 +289,9 @@ async def delete_contract(
 async def health() -> HealthResponse:
     """
     Returns status of all sub-systems:
-      - Embedding model loaded
-      - Ollama reachable + model available
-      - Number of loaded FAISS indexes
+    - Embedding model loaded
+    - Ollama reachable + model available
+    - Number of loaded FAISS indexes
     """
     ollama_ok = ollama_client.is_reachable()
     return HealthResponse(
