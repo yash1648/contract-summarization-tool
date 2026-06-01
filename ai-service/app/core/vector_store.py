@@ -6,7 +6,7 @@ Per-contract FAISS index management.
 
 from __future__ import annotations
 
-import pickle
+import json
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -202,43 +202,56 @@ class VectorStore:
     # ── Persistence ──────────────────────────────────────────────────────────
 
     def _persist(self, contract_id: str) -> None:
-        path = self._index_path(contract_id)
+        """Persist FAISS index natively and metadata as JSON (safe, no pickle)."""
+        base_path = self._index_path(contract_id)
+        idx_path = base_path.with_suffix(".faiss")
+        meta_path = base_path.with_suffix(".meta.json")
         try:
-            data = {
-                "index_bytes": faiss.serialize_index(self._indexes[contract_id].index),
-                "metadata":    self._indexes[contract_id].metadata,
-                "contract_id": contract_id,
-            }
-            with open(path, "wb") as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # Serialize FAISS index using native format
+            faiss.write_index(self._indexes[contract_id].index, str(idx_path))
+            # Serialize metadata as JSON (safe, no arbitrary code execution)
+            metadata = [
+                {
+                    "embedding_id": m.embedding_id,
+                    "chunk_index": m.chunk_index,
+                    "text": m.text,
+                    "contract_id": m.contract_id,
+                }
+                for m in self._indexes[contract_id].metadata
+            ]
+            meta_path.write_text(json.dumps(metadata, ensure_ascii=False))
 
-            logger.debug(f"VectorStore: persisted index → {path}")
+            logger.debug(f"VectorStore: persisted index → {idx_path}")
 
         except Exception as e:
             logger.error(f"VectorStore: failed to persist {contract_id}: {e}")
 
     def _load_all_from_disk(self) -> None:
+        """Load FAISS indexes natively and metadata from JSON (safe, no pickle)."""
         loaded = 0
-        for path in self._index_dir.glob("*.faiss"):
+        for faiss_path in self._index_dir.glob("*.faiss"):
+            contract_id = faiss_path.stem
+            meta_path = faiss_path.with_suffix(".meta.json")
             try:
-                with open(path, "rb") as f:
-                    data = pickle.load(f)
-
-                index = faiss.deserialize_index(data["index_bytes"])
+                # Load FAISS index using native format
+                index = faiss.read_index(str(faiss_path))
+                # Load metadata from JSON
+                metadata_json = json.loads(meta_path.read_text())
+                metadata = [ChunkMeta(**m) for m in metadata_json]
 
                 ci = ContractIndex(
-                    contract_id=data["contract_id"],
+                    contract_id=contract_id,
                     index=index,
-                    metadata=data["metadata"],
+                    metadata=metadata,
                 )
 
-                self._indexes[data["contract_id"]] = ci
+                self._indexes[contract_id] = ci
                 loaded += 1
 
-                logger.debug(f"VectorStore: loaded {ci.size} vectors from {path.name}")
+                logger.debug(f"VectorStore: loaded {ci.size} vectors from {faiss_path.name}")
 
             except Exception as e:
-                logger.warning(f"VectorStore: could not load {path}: {e}")
+                logger.warning(f"VectorStore: could not load {faiss_path}: {e}")
 
         logger.info(f"VectorStore: restored {loaded} contract index(es) from disk")
 

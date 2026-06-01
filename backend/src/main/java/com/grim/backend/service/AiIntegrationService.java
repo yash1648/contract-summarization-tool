@@ -44,6 +44,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiIntegrationService {
 
+    /** Shared ObjectMapper — thread-safe after construction, no need to recreate per call. */
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final WebClient aiWebClient;
 
     @Value("${app.ai.service.enabled:true}")
@@ -251,13 +254,7 @@ public class AiIntegrationService {
                         .timeout(Duration.ofSeconds(timeoutSeconds))
                         .block();
 
-                // 🔥 ADD THIS (CRITICAL)
-                log.info("[{}] RAW RESPONSE: {}", operation, response);
-
-                // 🔥 Parse manually
-                ObjectMapper mapper = new ObjectMapper();
-                return mapper.readTree(response);
-
+                return OBJECT_MAPPER.readTree(response);
             } catch (Exception e) {
                 lastException = e;
                 String simplified = simplifyError(e);

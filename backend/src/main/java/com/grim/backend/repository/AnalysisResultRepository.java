@@ -25,6 +25,9 @@ public interface AnalysisResultRepository extends MongoRepository<AnalysisResult
     /** Results by risk level */
     List<AnalysisResult> findByRiskLevel(AnalysisResult.RiskLevel riskLevel);
 
+    /** Count by risk level — O(1) query, avoids loading all results into memory */
+    long countByRiskLevel(AnalysisResult.RiskLevel riskLevel);
+
     /** Delete analysis when contract is deleted */
     void deleteByContractId(String contractId);
 }

@@ -4,6 +4,7 @@ import com.grim.backend.dto.UploadResponseDto;
 import com.grim.backend.model.Contract;
 import com.grim.backend.service.AnalysisService;
 import com.grim.backend.service.ContractService;
+import jakarta.annotation.PreDestroy;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Handles contract upload and listing pages.
@@ -126,5 +128,25 @@ public class ContractController {
                     "Delete failed: " + e.getMessage());
         }
         return "redirect:/contracts";
+    }
+
+    /**
+     * Gracefully shut down the analysis executor on application context destruction.
+     * Prevents thread leaks during redeployment or shutdown.
+     */
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down analysis analysis executor...");
+        analysisExecutor.shutdown();
+        try {
+            if (!analysisExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                log.warn("Analysis executor did not terminate gracefully, forcing shutdown");
+                analysisExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            log.error("Interrupted while waiting for analysis executor shutdown");
+            analysisExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

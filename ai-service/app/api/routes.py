@@ -13,6 +13,7 @@ Routes:
 """
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Path
@@ -70,8 +71,7 @@ async def embed_chunks(request: EmbedRequest) -> EmbedResponse:
     if not request.chunks:
         raise HTTPException(status_code=400, detail="chunks list is empty")
 
-    import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(
             _executor, lambda: rag_pipeline.embed(request)
@@ -123,8 +123,7 @@ async def analyze_contract(request: AnalyzeRequest) -> AnalyzeResponse:
     if not request.chunkTexts:
         raise HTTPException(status_code=400, detail="chunkTexts list is empty")
 
-    import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(
             _executor, lambda: rag_pipeline.analyze(request)
@@ -135,6 +134,68 @@ async def analyze_contract(request: AnalyzeRequest) -> AnalyzeResponse:
 
     return result
 
+# ════════════════════════════════════════════════════════════════════════════
+# POST /api/ai/extract — Extraction-first pipeline (new, preferred)
+# ════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/extract",
+    response_model=ExtractResponse,
+    summary="Extraction-first contract analysis",
+    description=(
+        "Lightweight extraction pipeline optimized for low-resource machines. "
+        "1. Splits chunks into sentences "
+        "2. Filters by cosine similarity "
+        "3. Extracts structured JSON using lightweight model "
+        "4. Returns per-chunk structured data for Java to merge"
+    ),
+)
+async def extract_contract(request: ExtractRequest) -> ExtractResponse:
+    """
+    Request body (from AiIntegrationService.analyze):
+    {
+        "contractId": "...",
+        "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
+    }
+
+    Response:
+    {
+        "contractId": "...",
+        "chunks": [
+            {
+                "chunk_id": 0,
+                "data": {
+                    "parties": [...],
+                    "obligations": [...],
+                    "payment_terms": [...],
+                    "dates": [...],
+                    "penalties": [...],
+                    "termination": [...]
+                }
+            },
+            ...
+        ],
+        "totalChunks": 12,
+        "processingTimeMs": 1234
+    }
+    """
+    logger.info(
+        f"POST /extract contractId={request.contractId} "
+        f"rawChunks={len(request.chunkTexts)}"
+    )
+    if not request.chunkTexts:
+        raise HTTPException(status_code=400, detail="chunkTexts list is empty")
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            _executor, lambda: rag_pipeline.extract(request)
+        )
+    except Exception as e:
+        logger.exception(f"extract failed for {request.contractId}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return result
 
 # ════════════════════════════════════════════════════════════════════════════
 #  POST /api/ai/search
@@ -173,8 +234,7 @@ async def semantic_search(request: SearchRequest) -> SearchResponse:
         f"contractId={request.contractId}  topK={request.topK}"
     )
 
-    import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(
             _executor, lambda: rag_pipeline.search(request)

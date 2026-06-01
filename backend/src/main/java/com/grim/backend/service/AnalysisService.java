@@ -99,7 +99,7 @@ public class AnalysisService {
     // ── Dashboard stats ──────────────────────────────────────
 
     public long countHighRisk() {
-        return analysisResultRepository.findByRiskLevel(AnalysisResult.RiskLevel.HIGH).size();
+        return analysisResultRepository.countByRiskLevel(AnalysisResult.RiskLevel.HIGH);
     }
 
     // ── Mapper ───────────────────────────────────────────────

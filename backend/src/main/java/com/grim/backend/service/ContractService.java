@@ -61,6 +61,9 @@ public class ContractService {
             throw new FileProcessingException("Failed to read file content: " + e.getMessage(), e);
         }
 
+        // Validate actual file content via magic bytes (prevents extension spoofing)
+        validateFileContent(fileBytes, mimeType);
+
         String storagePath = saveFileToDisk(fileBytes, file.getOriginalFilename());
 
         Contract contract = Contract.builder()
@@ -185,6 +188,25 @@ public class ContractService {
             throw new FileProcessingException("File type not allowed: " + mime);
         if (file.getSize() > 20L * 1024 * 1024)
             throw new FileProcessingException("File exceeds 20 MB limit.");
+    }
+
+    /**
+     * Validate file content by checking magic bytes (file signature).
+     * Prevents uploading files with spoofed extensions.
+     */
+    private void validateFileContent(byte[] bytes, String mimeType) {
+        if (bytes.length < 4)
+            throw new FileProcessingException("File is too small to be a valid document.");
+
+        if (mimeType.equals("application/pdf")) {
+            // PDF magic bytes: %PDF
+            if (bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
+                throw new FileProcessingException("File is not a valid PDF (magic byte mismatch).");
+        } else if (mimeType.contains("openxmlformats")) {
+            // DOCX (ZIP-based) magic bytes: PK\x03\x04
+            if (bytes[0] != 'P' || bytes[1] != 'K' || bytes[2] != 0x03 || bytes[3] != 0x04)
+                throw new FileProcessingException("File is not a valid DOCX (magic byte mismatch).");
+        }
     }
 
     private String resolveMimeType(MultipartFile file) {

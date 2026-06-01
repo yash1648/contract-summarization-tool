@@ -10,6 +10,13 @@ Performance strategy:
 """
 from __future__ import annotations
 
+import hashlib
+import re
+import time
+from collections import OrderedDict
+from typing import Optional
+
+import numpy as np
 from loguru import logger
 
 from app.config import settings
@@ -31,6 +38,184 @@ _ANALYSIS_QUERIES = [
     "termination liability indemnification risks",
 ]
 
+def _get_filter_query_embeddings() -> np.ndarray:
+    """
+    Cache and return embeddings for filter queries (loaded lazily on first use).
+    This ensures embedder is loaded before we try to encode the queries.
+    """
+    global _FILTER_QUERY_EMBEDDINGS, _FILTER_QUERIES_INITIALIZED
+
+    if _FILTER_QUERY_EMBEDDINGS is None and not _FILTER_QUERIES_INITIALIZED:
+        _FILTER_QUERIES_INITIALIZED = True
+        queries = settings.filter_queries
+        if queries:
+            logger.info(f"Encoding {len(queries)} filter queries")
+            _FILTER_QUERY_EMBEDDINGS = embedder.encode(queries)
+            logger.debug(f"Filter query embeddings shape: {_FILTER_QUERY_EMBEDDINGS.shape}")
+        else:
+            logger.warning("No filter queries configured, sentence filtering will be skipped")
+            _FILTER_QUERY_EMBEDDINGS = np.array([], dtype=np.float32)
+
+    return _FILTER_QUERY_EMBEDDINGS
+
+
+# ── Sentence splitting ────────────────────────────────────────────────────────
+
+_SENTENCE_SPLITTER = re.compile(r'(?<=[.!?])\s+')
+
+# Pre-compiled noise pattern regex (avoids recompilation on every call)
+_NOISE_PATTERNS = [
+    r'^page\s+\d+',
+    r'^figure\s+\d+',
+    r'^table\s+\d+',
+    r'^\s*[\d]+\s*$',  # Standalone numbers
+    r'^exhibit\s+[a-z]',
+    r'^appendix\s+[a-z]',
+]
+_NOISE_RE = re.compile('|'.join(_NOISE_PATTERNS), re.IGNORECASE)
+
+
+def split_into_sentences(text: str) -> list[str]:
+    """Split text into sentences, filtering out noise (headers, footers)."""
+    if not text or not text.strip():
+        return []
+
+    sentences = _SENTENCE_SPLITTER.split(text)
+
+    # Filter out noise patterns
+    filtered = []
+    for s in sentences:
+        s = s.strip()
+        if len(s) < 10:  # Skip very short fragments
+            continue
+        if _NOISE_RE.match(s):
+            continue
+        filtered.append(s)
+
+    return filtered
+
+
+# ── Sentence filtering via cosine similarity ──────────────────────────────────
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors (both L2-normalized)."""
+    return float(np.dot(a, b))
+
+
+def filter_sentences_by_relevance(
+    sentences: list[str],
+    threshold: float = None,
+    max_sentences: int = None,
+) -> list[str]:
+    """
+    Filter sentences using cosine similarity against filter query embeddings.
+
+    Args:
+        sentences: List of sentence strings
+        threshold: Minimum similarity score (default from settings)
+        max_sentences: Maximum sentences to return (default from settings)
+
+    Returns:
+        Filtered list of sentences sorted by relevance
+    """
+    if not sentences:
+        return []
+
+    threshold = threshold or settings.similarity_threshold
+    max_sentences = max_sentences or settings.max_sentences_per_chunk
+
+    # Get query embeddings (lazy loaded)
+    query_embeddings = _get_filter_query_embeddings()
+
+    # If no query embeddings configured, return first N sentences as fallback
+    if query_embeddings is None or len(query_embeddings) == 0:
+        logger.debug("No filter queries configured, returning first sentences as fallback")
+        return sentences[:max_sentences]
+
+    # Encode all sentences
+    sentence_embeddings = embedder.encode(sentences)
+
+    # Compute max similarity to any query for each sentence
+    # sentence_embeddings: (n, dim), query_embeddings: (m, dim)
+    # similarities: (n, m) → max over m
+    similarities = np.dot(sentence_embeddings, query_embeddings.T)
+    max_similarities = similarities.max(axis=1)
+
+    # Filter by threshold
+    filtered_indices = np.where(max_similarities >= threshold)[0]
+
+    if len(filtered_indices) == 0:
+        # Fallback: if nothing passes threshold, take top sentences by any similarity
+        top_k = min(max_sentences, len(sentences))
+        top_indices = np.argsort(max_similarities)[-top_k:]
+        filtered_indices = top_indices
+
+    # Sort by similarity descending, take top max_sentences
+    sorted_indices = filtered_indices[np.argsort(max_similarities[filtered_indices])[::-1]]
+    selected = sorted_indices[:max_sentences]
+
+    # Return in original order
+    return [sentences[i] for i in sorted(selected)]
+
+
+def reconstruct_mini_chunk(sentences: list[str]) -> str:
+    """Reconstruct a mini-chunk from filtered sentences."""
+    return ' '.join(sentences)
+
+
+# ── Hash-based caching with TTL eviction ──────────────────────────────────────
+
+
+class TTLCache:
+    """Bounded cache with TTL-based eviction to prevent memory leaks."""
+
+    def __init__(self, maxsize: int = 500, ttl_seconds: int = 3600):
+        self._cache: OrderedDict[str, tuple[dict, float]] = OrderedDict()
+        self._maxsize = maxsize
+        self._ttl = ttl_seconds
+
+    def get(self, key: str) -> Optional[dict]:
+        if key in self._cache:
+            result, timestamp = self._cache[key]
+            if time.time() - timestamp < self._ttl:
+                self._cache.move_to_end(key)
+                return result
+            del self._cache[key]
+        return None
+
+    def put(self, key: str, result: dict) -> None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        self._cache[key] = (result, time.time())
+        while len(self._cache) > self._maxsize:
+            self._cache.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+
+_CHUNK_CACHE = TTLCache(maxsize=500, ttl_seconds=3600)
+
+
+def get_chunk_cache_key(text: str) -> str:
+    """Generate a cache key for a chunk based on its content hash."""
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
+
+
+def get_cached_result(text: str) -> Optional[dict]:
+    """Get cached extraction result for a chunk."""
+    key = get_chunk_cache_key(text)
+    return _CHUNK_CACHE.get(key)
+
+
+def cache_result(text: str, result: dict) -> None:
+    """Cache extraction result for a chunk."""
+    key = get_chunk_cache_key(text)
+    _CHUNK_CACHE.put(key, result)
+    logger.debug(f"Cached result for chunk key={key} (cache_size={len(_CHUNK_CACHE)})")
+
+
+# ── Main pipeline ─────────────────────────────────────────────────────────────
 
 class RagPipeline:
     """
@@ -83,7 +268,109 @@ class RagPipeline:
         )
 
     # ══════════════════════════════════════════════════════════
-    #  ANALYZE — SINGLE LLM CALL
+    # EXTRACT — Extraction-first pipeline (new)
+    # ══════════════════════════════════════════════════════════
+
+    def extract(self, request: ExtractRequest) -> ExtractResponse:
+        """
+        Extraction-first analysis pipeline:
+
+        1. Split each chunk into sentences
+        2. Generate embeddings for each sentence
+        3. Filter sentences by cosine similarity to query embeddings
+        4. Reconstruct mini-chunks
+        5. Extract structured data using lightweight model
+        6. Return per-chunk JSON results
+
+        This replaces the map-reduce summarization approach with:
+        - Sentence-level filtering (reduces context by ~70%)
+        - Structured extraction (no free-text summarization)
+        - Lightweight model (TinyLlama instead of llama3)
+        """
+        start_time = time.time()
+        contract_id = request.contractId
+        chunk_texts = request.chunkTexts
+
+        logger.info(
+            f"[extract] contractId={contract_id} "
+            f"numChunks={len(chunk_texts)}"
+        )
+
+        # Process chunks sequentially (already running in thread pool from routes)
+        # Creating a nested ThreadPoolExecutor here would cause thread starvation
+        results: list[ChunkExtractionResult] = []
+        for idx, text in enumerate(chunk_texts):
+            try:
+                result = self._extract_single_chunk(text, idx)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"[extract] Chunk {idx} failed: {e}")
+                # Return empty extraction on failure
+                results.append(ChunkExtractionResult(
+                    chunk_id=idx,
+                    data=ChunkExtractionData()
+                ))
+
+        # Sort by chunk_id to maintain order
+        results.sort(key=lambda x: x.chunk_id)
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            f"[extract] done contractId={contract_id} "
+            f"processed={len(results)} time={elapsed_ms}ms"
+        )
+
+        return ExtractResponse(
+            contractId=contract_id,
+            chunks=results,
+            totalChunks=len(results),
+            processingTimeMs=elapsed_ms,
+        )
+
+    def _extract_single_chunk(self, text: str, chunk_id: int) -> ChunkExtractionResult:
+        """
+        Process a single chunk through the extraction pipeline:
+        1. Check cache
+        2. Split into sentences
+        3. Filter by relevance
+        4. Reconstruct mini-chunk
+        5. Extract structured data
+        6. Cache and return
+        """
+        # Check cache first
+        cached = get_cached_result(text)
+        if cached:
+            logger.debug(f"[extract] Cache hit for chunk {chunk_id}")
+            return ChunkExtractionResult(chunk_id=chunk_id, data=ChunkExtractionData(**cached))
+
+        # Step 1: Split into sentences
+        sentences = split_into_sentences(text)
+        if not sentences:
+            logger.warning(f"[extract] No sentences extracted from chunk {chunk_id}")
+            return ChunkExtractionResult(
+                chunk_id=chunk_id,
+                data=ChunkExtractionData()
+            )
+
+        # Step 2: Filter sentences by relevance
+        filtered_sentences = filter_sentences_by_relevance(sentences)
+
+        # Step 3: Reconstruct mini-chunk
+        mini_chunk = reconstruct_mini_chunk(filtered_sentences)
+
+        # Step 4: Extract structured data
+        extraction = ollama_client.extract_structured(mini_chunk)
+
+        # Step 5: Cache result
+        cache_result(text, extraction)
+
+        return ChunkExtractionResult(
+            chunk_id=chunk_id,
+            data=ChunkExtractionData(**extraction)
+        )
+
+    # ══════════════════════════════════════════════════════════
+    # ANALYZE — Legacy map-reduce (kept for backward compatibility)
     # ══════════════════════════════════════════════════════════
 
     def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
@@ -100,15 +387,14 @@ class RagPipeline:
 
         has_index = self._has_faiss_index(request.contractId)
 
-        # ── Map-Reduce Summarization (Parallel) ──
-        logger.info("[analyze] Starting parallel chunk summarization")
-        
-        from concurrent.futures import ThreadPoolExecutor
-        
-        # Step 3: Summarize each chunk (parallel)
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            chunk_summaries = list(executor.map(ollama_client.generate_chunk_summary, request.chunkTexts))
-            
+        # Map-Reduce Summarization (sequential — already in thread pool from routes)
+        logger.info("[analyze] Starting chunk summarization")
+
+        chunk_summaries = [
+            ollama_client.generate_chunk_summary(chunk)
+            for chunk in request.chunkTexts
+        ]
+
         logger.info(f"[analyze] Generated {len(chunk_summaries)} chunk summaries. Merging...")
         
         # Step 4 & 5: Merge summaries and Final summary
