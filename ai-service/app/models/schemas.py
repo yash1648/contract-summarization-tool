@@ -96,3 +96,36 @@ class HealthResponse(BaseModel):
     ollamaModel: str
     ollamaReachable: bool
     totalIndexes: int
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  POST /api/ai/extract — Extraction-first pipeline schemas
+# ════════════════════════════════════════════════════════════════════════════
+
+class ChunkExtractionData(BaseModel):
+    """Structured fields extracted from a single chunk."""
+    parties: list[str] = []
+    obligations: list[str] = []
+    payment_terms: list[str] = []
+    dates: list[str] = []
+    penalties: list[str] = []
+    termination: list[str] = []
+    other: list[str] = []
+
+
+class ChunkExtractionResult(BaseModel):
+    """Extraction result for a single chunk."""
+    chunk_id: int
+    data: ChunkExtractionData
+
+
+class ExtractRequest(BaseModel):
+    contractId: str
+    chunkTexts: list[str]
+
+
+class ExtractResponse(BaseModel):
+    contractId: str
+    chunks: list[ChunkExtractionResult]
+    totalChunks: int
+    processingTimeMs: int

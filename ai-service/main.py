@@ -23,7 +23,7 @@ from loguru import logger
 from app.config import settings
 from app.api.routes import router
 from app.core.embedder import embedder
-from app.core.ollama_client import ollama_client
+from app.core.llm_client import llm_client
 from app.core.vector_store import vector_store
 
 
@@ -47,14 +47,17 @@ async def lifespan(app: FastAPI):
     # 2. FAISS indexes are loaded in VectorStore.__init__()
     logger.info(f"FAISS indexes loaded: {vector_store.total_indexes()}")
 
-    # 3. Check Ollama connectivity
-    if ollama_client.is_reachable():
-        logger.info(f"Ollama OK  model={settings.ollama_model}")
+    # 3. Check LLM provider connectivity (NVIDIA NIM → Ollama fallback)
+    if llm_client.is_reachable():
+        if settings.nvidia_api_key:
+            logger.info(f"NVIDIA NIM OK  model={settings.nvidia_model}")
+        else:
+            logger.info(f"Ollama OK  model={settings.ollama_model}")
     else:
         logger.warning(
-            f"Ollama NOT reachable at {settings.ollama_base_url}. "
-            f"Embedding and search will work, but LLM calls will fail. "
-            f"Start Ollama and run: ollama pull {settings.ollama_model}"
+            "No LLM provider reachable. "
+            "Set NVIDIA_API_KEY for cloud inference or start Ollama for local inference. "
+            "Embedding and search will work, but LLM calls will fail."
         )
 
     logger.info(f"AI service ready on http://{settings.host}:{settings.port}")

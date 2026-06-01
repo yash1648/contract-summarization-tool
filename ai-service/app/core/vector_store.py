@@ -91,8 +91,8 @@ class VectorStore:
 
                 vec = vec.astype(np.float32).reshape(1, -1)
 
-                # Optional but recommended for cosine similarity
-                # faiss.normalize_L2(vec)
+                # Normalise to unit length so inner product = cosine similarity
+                faiss.normalize_L2(vec)
 
                 contract_idx.index.add(vec)
 
@@ -133,8 +133,8 @@ class VectorStore:
 
         query_vector = query_vector.reshape(1, -1)
 
-        # Optional normalization
-        # faiss.normalize_L2(query_vector)
+        # Normalise to unit length so inner product = cosine similarity
+        faiss.normalize_L2(query_vector)
 
         results: list[dict] = []
 
@@ -256,10 +256,12 @@ class VectorStore:
         logger.info(f"VectorStore: restored {loaded} contract index(es) from disk")
 
     def _delete_from_disk(self, contract_id: str) -> None:
-        path = self._index_path(contract_id)
-        if path.exists():
-            path.unlink()
-            logger.debug(f"VectorStore: removed {path}")
+        base = self._index_path(contract_id)
+        for suffix in (".faiss", ".meta.json"):
+            path = base.with_suffix(suffix)
+            if path.exists():
+                path.unlink()
+                logger.debug(f"VectorStore: removed {path}")
 
     def _index_path(self, contract_id: str) -> Path:
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in contract_id)

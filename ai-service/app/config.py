@@ -24,7 +24,15 @@ class Settings(BaseSettings):
     # ── FAISS persistence ────────────────────────────────────
     faiss_index_dir: Path = Field("./data/faiss_indexes", env="FAISS_INDEX_DIR")
 
-    # ── Ollama ───────────────────────────────────────────────
+    # ── NVIDIA NIMs (primary provider) ───────────────────────
+    nvidia_api_key: str = Field("", env="NVIDIA_API_KEY")
+    nvidia_base_url: str = Field("https://integrate.api.nvidia.com/v1", env="NVIDIA_BASE_URL")
+    nvidia_model: str = Field("meta/llama-3.3-70b-instruct", env="NVIDIA_MODEL")
+    nvidia_max_tokens: int = Field(4096, env="NVIDIA_MAX_TOKENS")
+    nvidia_temperature: float = Field(0.05, env="NVIDIA_TEMPERATURE")
+    nvidia_timeout: int = Field(60, env="NVIDIA_TIMEOUT")
+
+    # ── Ollama (secondary / fallback) ─────────────────────────
     ollama_base_url: str = Field("http://localhost:11434", env="OLLAMA_BASE_URL")
     ollama_model: str = Field("llama3", env="OLLAMA_MODEL")
     ollama_max_tokens: int = Field(1024, env="OLLAMA_MAX_TOKENS")
@@ -33,6 +41,16 @@ class Settings(BaseSettings):
     # ── RAG ──────────────────────────────────────────────────
     rag_top_k: int = Field(7, env="RAG_TOP_K")
     rag_min_score: float = Field(0.30, env="RAG_MIN_SCORE")
+
+    # ── Sentence filtering (extraction pipeline) ─────────────
+    filter_queries: list[str] = Field(
+        ["parties obligations payment terms penalties",
+         "termination liability indemnification risks",
+         "effective date agreement duration renewal"],
+        env="FILTER_QUERIES"
+    )
+    similarity_threshold: float = Field(0.25, env="SIMILARITY_THRESHOLD")
+    max_sentences_per_chunk: int = Field(15, env="MAX_SENTENCES_PER_CHUNK")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

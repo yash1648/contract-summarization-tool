@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Path
 from loguru import logger
 
 from app.core.rag_pipeline import rag_pipeline
-from app.core.ollama_client import ollama_client
+from app.core.llm_client import llm_client
 from app.core.vector_store import vector_store
 from app.config import settings
 from app.models.schemas import (
@@ -28,6 +28,7 @@ from app.models.schemas import (
     AnalyzeRequest, AnalyzeResponse,
     SearchRequest, SearchResponse,
     DeleteResponse, HealthResponse,
+    ExtractRequest, ExtractResponse,
 )
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
@@ -293,11 +294,11 @@ async def health() -> HealthResponse:
       - Ollama reachable + model available
       - Number of loaded FAISS indexes
     """
-    ollama_ok = ollama_client.is_reachable()
+    llm_ok = llm_client.is_reachable()
     return HealthResponse(
-        status="ok" if ollama_ok else "degraded",
+        status="ok" if llm_ok else "degraded",
         embeddingModel=settings.embedding_model,
         ollamaModel=settings.ollama_model,
-        ollamaReachable=ollama_ok,
+        ollamaReachable=llm_ok,
         totalIndexes=vector_store.total_indexes(),
     )

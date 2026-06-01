@@ -22,12 +22,14 @@ from loguru import logger
 from app.config import settings
 from app.core.embedder import embedder
 from app.core.vector_store import vector_store
-from app.core.ollama_client import ollama_client
+from app.core.llm_client import llm_client
 from app.models.schemas import (
     EmbedRequest, EmbedResponse,
     AnalyzeRequest, AnalyzeResponse,
     SearchRequest, SearchResponse, SearchResultItem,
     DeleteResponse,
+    ExtractRequest, ExtractResponse,
+    ChunkExtractionResult, ChunkExtractionData,
 )
 
 
@@ -37,6 +39,11 @@ _ANALYSIS_QUERIES = [
     "parties obligations payment terms penalties",
     "termination liability indemnification risks",
 ]
+
+# ── Filter query embeddings cache (lazy-loaded) ────────────────────────────
+_FILTER_QUERY_EMBEDDINGS: np.ndarray | None = None
+_FILTER_QUERIES_INITIALIZED: bool = False
+
 
 def _get_filter_query_embeddings() -> np.ndarray:
     """
@@ -358,8 +365,17 @@ class RagPipeline:
         # Step 3: Reconstruct mini-chunk
         mini_chunk = reconstruct_mini_chunk(filtered_sentences)
 
-        # Step 4: Extract structured data
-        extraction = ollama_client.extract_structured(mini_chunk)
+        # Step 4: Extract structured data using combined analysis
+        combined = llm_client.generate_combined([mini_chunk])
+        extraction = {
+            "parties": combined.get("parties", []),
+            "obligations": combined.get("obligations", []),
+            "payment_terms": combined.get("payment_terms", []),
+            "dates": combined.get("dates", []),
+            "penalties": combined.get("penaltyClauses", []),
+            "termination": combined.get("terminationRisks", []),
+            "other": combined.get("otherFlags", []),
+        }
 
         # Step 5: Cache result
         cache_result(text, extraction)
@@ -391,7 +407,7 @@ class RagPipeline:
         logger.info("[analyze] Starting chunk summarization")
 
         chunk_summaries = [
-            ollama_client.generate_chunk_summary(chunk)
+            llm_client.generate_chunk_summary(chunk)
             for chunk in request.chunkTexts
         ]
 
@@ -410,7 +426,7 @@ class RagPipeline:
         )
 
         # Single LLM call for risk
-        risk_result = ollama_client.generate_risk_analysis(context_chunks)
+        risk_result = llm_client.generate_risk_analysis(context_chunks)
 
         chunks_used = len(request.chunkTexts)
 
@@ -438,7 +454,7 @@ class RagPipeline:
             return "No text available to summarize."
             
         if len(summaries) <= 5:
-            return ollama_client.generate_final_summary(summaries)
+            return llm_client.generate_final_summary(summaries)
             
         # Chunk into groups of 5
         merged_groups = []
@@ -447,7 +463,7 @@ class RagPipeline:
             if len(group) == 1:
                 merged_groups.append(group[0])
             else:
-                merged_groups.append(ollama_client.merge_summaries(group))
+                merged_groups.append(llm_client.merge_summaries(group))
                 
         # Recursive call for multi-level summarization
         return self._map_reduce_summaries(merged_groups)

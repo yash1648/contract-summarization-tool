@@ -44,14 +44,24 @@ def mock_embedder():
 
 
 @pytest.fixture(autouse=True)
-def mock_ollama():
-    """Replace the real Ollama client to avoid needing a running LLM."""
-    with patch("app.core.rag_pipeline.ollama_client") as mock:
-        mock.generate_summary.return_value = (
+def mock_llm():
+    """Replace the real LLM client to avoid needing a running LLM or NVIDIA API."""
+    with patch("app.core.rag_pipeline.llm_client") as mock:
+        mock.generate_chunk_summary.return_value = "Summary of contract clause."
+        mock.merge_summaries.return_value = "Merged summary of all clauses."
+        mock.generate_final_summary.return_value = (
             "1. Parties: Acme Corp and Beta Ltd\n"
             "2. Purpose: Software licensing\n"
             "3. Payment: Monthly USD 5000\n"
         )
+        mock.generate_combined.return_value = {
+            "summary": "Contract analysis summary.",
+            "riskScore": 4.5,
+            "penaltyClauses": ["10% penalty on late delivery"],
+            "terminationRisks": ["Immediate termination without cause"],
+            "liabilityIssues": ["Unlimited liability clause"],
+            "otherFlags": [],
+        }
         mock.generate_risk_analysis.return_value = {
             "riskScore": 4.5,
             "penaltyClauses": ["10% penalty on late delivery"],
@@ -240,7 +250,7 @@ class TestDelete:
 class TestHealth:
 
     def test_health_returns_ok(self, client):
-        with patch("app.api.routes.ollama_client") as m:
+        with patch("app.api.routes.llm_client") as m:
             m.is_reachable.return_value = True
             resp = client.get("/api/ai/health")
         assert resp.status_code == 200

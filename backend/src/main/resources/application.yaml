@@ -4,6 +4,7 @@ spring:
 
   # MongoDB
 
+  
   mongodb:
       uri: mongodb://admin:password@localhost:27017/ai_assistant_db?authSource=admin
 

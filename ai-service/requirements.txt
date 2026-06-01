@@ -10,7 +10,8 @@ torch==2.2.2               # CPU build; change to torch+cu118 for GPU
 # ── Vector store ─────────────────────────────────────────────
 faiss-cpu==1.8.0           # faiss-gpu if you have CUDA
 
-# ── LLM — Ollama client ──────────────────────────────────────
+# ── LLM — NVIDIA NIM (OpenAI-compatible) + Ollama fallback ───
+openai==1.35.0              # OpenAI SDK (also used for NVIDIA NIMs)
 ollama==0.2.1
 
 # ── Data / validation ─────────────────────────────────────────
