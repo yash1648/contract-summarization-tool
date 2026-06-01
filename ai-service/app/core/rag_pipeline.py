@@ -386,15 +386,20 @@ class RagPipeline:
         )
 
     # ══════════════════════════════════════════════════════════
-    # ANALYZE — Legacy map-reduce (kept for backward compatibility)
+    # ANALYZE — RAG-first summarization (fast, single-pass)
     # ══════════════════════════════════════════════════════════
 
     def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
         """
-        Map-Reduce Summarization + RAG Risk Analysis:
-          - Summarize all chunks in parallel
-          - Multi-level merge of summaries -> Final Summary
-          - RAG retrieval -> Risk Analysis JSON
+        RAG-first summarization + risk analysis (single-pass).
+
+        Performance strategy:
+          1. Retrieve the most relevant chunks via FAISS (semantic search)
+          2. Generate BOTH summary AND risk in a SINGLE combined LLM call
+          3. No map-reduce — avoids N separate LLM calls per chunk
+
+        Before (map-reduce):  ~1.3 × N LLM calls  (N=chunks)
+        After  (RAG-first):   1-2 LLM calls total  ✓
         """
         logger.info(
             f"[analyze] contractId={request.contractId}  "
@@ -403,21 +408,7 @@ class RagPipeline:
 
         has_index = self._has_faiss_index(request.contractId)
 
-        # Map-Reduce Summarization (sequential — already in thread pool from routes)
-        logger.info("[analyze] Starting chunk summarization")
-
-        chunk_summaries = [
-            llm_client.generate_chunk_summary(chunk)
-            for chunk in request.chunkTexts
-        ]
-
-        logger.info(f"[analyze] Generated {len(chunk_summaries)} chunk summaries. Merging...")
-        
-        # Step 4 & 5: Merge summaries and Final summary
-        final_summary = self._map_reduce_summaries(chunk_summaries)
-
-        # ── Risk Analysis (RAG) ──
-        # Single retrieval pass for risk
+        # ── RAG retrieval: find the most relevant chunks (single FAISS pass) ──
         context_chunks = self._retrieve_context(
             contract_id=request.contractId,
             queries=_ANALYSIS_QUERIES,
@@ -425,48 +416,43 @@ class RagPipeline:
             has_index=has_index,
         )
 
-        # Single LLM call for risk
-        risk_result = llm_client.generate_risk_analysis(context_chunks)
+        chunks_used = len(context_chunks)
+        logger.info(
+            f"[analyze] Retrieved {chunks_used} relevant chunks for analysis"
+        )
 
-        chunks_used = len(request.chunkTexts)
+        if chunks_used == 0:
+            logger.warning(f"[analyze] No relevant chunks found for contractId={request.contractId}")
+            return AnalyzeResponse(
+                summary="No content available for analysis.",
+                riskScore=0.0,
+                penaltyClauses=[],
+                terminationRisks=[],
+                liabilityIssues=[],
+                otherFlags=[],
+                chunksUsed=0,
+            )
+
+        # ── Single combined LLM call: summary + risk together ────────────────
+        combined = llm_client.generate_combined(context_chunks)
+        summary = combined.get("summary", "Summary not available.")
+        risk_score = combined.get("riskScore", 0.0)
+        risk_score = max(0.0, min(10.0, risk_score))
 
         logger.info(
             f"[analyze] done  contractId={request.contractId}  "
-            f"riskScore={risk_result['riskScore']}  chunksUsed={chunks_used}"
+            f"riskScore={risk_score}  chunksUsed={chunks_used}"
         )
 
         return AnalyzeResponse(
-            summary=final_summary,
-            riskScore=risk_result["riskScore"],
-            penaltyClauses=risk_result["penaltyClauses"],
-            terminationRisks=risk_result["terminationRisks"],
-            liabilityIssues=risk_result["liabilityIssues"],
-            otherFlags=risk_result["otherFlags"],
+            summary=summary,
+            riskScore=risk_score,
+            penaltyClauses=combined.get("penaltyClauses", []),
+            terminationRisks=combined.get("terminationRisks", []),
+            liabilityIssues=combined.get("liabilityIssues", []),
+            otherFlags=combined.get("otherFlags", []),
             chunksUsed=chunks_used,
         )
-
-    def _map_reduce_summaries(self, summaries: list[str]) -> str:
-        """
-        Multi-level summarization for large PDFs.
-        Merges chunks in groups of 5 until we have <= 5 summaries, then generates the final.
-        """
-        if not summaries:
-            return "No text available to summarize."
-            
-        if len(summaries) <= 5:
-            return llm_client.generate_final_summary(summaries)
-            
-        # Chunk into groups of 5
-        merged_groups = []
-        for i in range(0, len(summaries), 5):
-            group = summaries[i:i+5]
-            if len(group) == 1:
-                merged_groups.append(group[0])
-            else:
-                merged_groups.append(llm_client.merge_summaries(group))
-                
-        # Recursive call for multi-level summarization
-        return self._map_reduce_summaries(merged_groups)
 
     # ══════════════════════════════════════════════════════════
     #  SEARCH

@@ -7,35 +7,46 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Splits a contract's extracted plain text into overlapping chunks.
+ * Splits a contract's extracted plain text into semantic chunks for RAG.
  *
  * Strategy:
- *   1. Try to split on paragraph boundaries (\n\n) first so chunks
- *      preserve semantic units.
- *   2. If a paragraph is longer than chunkSize, it is further split
- *      at sentence boundaries (". ").
- *   3. Final fallback: hard-split at chunkSize characters.
+ *   1. Split on paragraph boundaries (\n\n) first to preserve semantic units.
+ *   2. Within each paragraph, split on robust sentence boundaries
+ *      (., !, ? followed by whitespace or end-of-string).
+ *   3. Accumulate sentences into chunks up to chunkSize, keeping
+ *      sentences intact — never split mid-sentence.
+ *   4. Inject overlap from the previous chunk's tail so boundary
+ *      information isn't lost during vector search.
  *
- * Overlap:
- *   The last `overlapSize` characters of the previous chunk are
- *   prepended to the next chunk. This ensures that information at
- *   chunk boundaries is not lost during RAG retrieval.
- *
- * Configuration (application.properties):
- *   app.chunking.chunk-size  = 1600   (~400 tokens at 4 chars/token)
- *   app.chunking.overlap-size = 200
+ * Key improvements over the previous version:
+ *   - Robust sentence splitter: handles ". ", "! ", "? ", and end-of-string
+ *   - Sentences are NEVER split mid-way — chunk boundaries always fall at
+ *     sentence boundaries
+ *   - Overlap is injected from the tail of the previous chunk for context
  */
 @Slf4j
 @Service
 public class ChunkingService {
 
-    @Value("${app.chunking.size:1200}")
+    @Value("${app.chunking.size:2000}")
     private int chunkSize;
 
-    @Value("${app.chunking.overlap:150}")
+    @Value("${app.chunking.overlap:200}")
     private int overlapSize;
+
+    /**
+     * Regex that matches sentence boundaries: end-of-sentence punctuation
+     * (. ! ?) followed by whitespace or end of string.
+     *
+     * Uses a lookbehind so the delimiter is not consumed, preserving
+     * the punctuation on the sentence.
+     */
+    private static final Pattern SENTENCE_BOUNDARY =
+            Pattern.compile("(?<=[.!?])\\s+|(?<=[.!?])$");
 
     /**
      * Split text into overlapping ContractChunk objects.
@@ -48,17 +59,96 @@ public class ChunkingService {
             return List.of();
         }
 
-        List<String> rawChunks = splitIntoRawChunks(text);
-        List<ContractChunk> chunks = new ArrayList<>();
-        int charOffset = 0;
-        int chunkIndex = 0; // separate index for output chunks
+        // 1. Split into paragraphs first
+        String[] paragraphs = text.split("\\n\\n+");
 
-        for (int i = 0; i < rawChunks.size(); i++) {
-            String chunkText = rawChunks.get(i).strip();
+        // 2. Convert paragraphs into sentence-level segments
+        List<String> sentences = new ArrayList<>();
+        for (String para : paragraphs) {
+            if (para.isBlank()) continue;
+            splitSentences(para, sentences);
+        }
+
+        if (sentences.isEmpty()) {
+            return List.of();
+        }
+
+        // 3. Accumulate sentences into chunks + inject overlap
+        List<ContractChunk> chunks = buildChunksWithOverlap(sentences, text);
+
+        log.info("Chunking complete: {} sentences → {} chunks (chunkSize={}, overlap={})",
+                sentences.size(), chunks.size(), chunkSize, overlapSize);
+        return chunks;
+    }
+
+    // ── Private helpers ─────────────────────────────────────────────────
+
+    /**
+     * Split a paragraph into individual sentences using a robust boundary
+     * pattern that handles ".", "!", "?" followed by whitespace or end-of-string.
+     *
+     * Sentences shorter than 3 chars are discarded (likely artifacts).
+     */
+    private void splitSentences(String paragraph, List<String> out) {
+        Matcher matcher = SENTENCE_BOUNDARY.matcher(paragraph);
+        int start = 0;
+
+        while (matcher.find()) {
+            int end = matcher.start();
+            String sentence = paragraph.substring(start, end).strip();
+            if (sentence.length() >= 3) {
+                out.add(sentence);
+            }
+            start = matcher.end();
+        }
+
+        // Last sentence (or the whole paragraph if no boundary matched)
+        if (start < paragraph.length()) {
+            String sentence = paragraph.substring(start).strip();
+            if (sentence.length() >= 3) {
+                out.add(sentence);
+            }
+        }
+    }
+
+    /**
+     * Build chunks by accumulating sentences up to chunkSize, then injecting
+     * overlap from the tail of the previous chunk.
+     *
+     * Each chunk boundary falls at a sentence boundary — sentences are NEVER
+     * split mid-way. The overlap consists of whole sentences (not arbitrary
+     * characters) for clean vector embedding boundaries.
+     */
+    private List<ContractChunk> buildChunksWithOverlap(List<String> sentences, String fullText) {
+        List<ContractChunk> chunks = new ArrayList<>();
+        int chunkIndex = 0;
+        int sentenceIdx = 0;
+
+        while (sentenceIdx < sentences.size()) {
+            StringBuilder buffer = new StringBuilder();
+            int firstSentenceInChunk = sentenceIdx;
+
+            // Accumulate sentences until we hit chunkSize
+            while (sentenceIdx < sentences.size()) {
+                String next = sentences.get(sentenceIdx);
+                int projectedLen = buffer.length() + next.length() + 1;
+                if (buffer.isEmpty()) {
+                    projectedLen = next.length();
+                }
+                if (projectedLen > chunkSize && !buffer.isEmpty()) {
+                    break;  // Chunk is full; don't include this sentence
+                }
+                if (!buffer.isEmpty()) buffer.append(" ");
+                buffer.append(next);
+                sentenceIdx++;
+            }
+
+            String chunkText = buffer.toString().strip();
             if (chunkText.isBlank()) continue;
 
-            int start = text.indexOf(chunkText, Math.max(0, charOffset - overlapSize));
-            int end   = start + chunkText.length();
+            // Find position in full text for offset tracking
+            int start = findApproxOffset(fullText, chunkText, chunks);
+            int end = start + chunkText.length();
 
             chunks.add(ContractChunk.builder()
                     .index(chunkIndex)
@@ -68,89 +158,48 @@ public class ChunkingService {
                     .embedded(false)
                     .build());
 
-            charOffset = end;
             chunkIndex++;
+
+            // Inject overlap: rewind sentenceIdx to include overlap sentences
+            // from the end of the current chunk (if there are more sentences)
+            if (sentenceIdx < sentences.size()) {
+                sentenceIdx = computeOverlapStart(firstSentenceInChunk, sentenceIdx, sentences);
+            }
         }
 
-        log.info("Chunking complete: {} raw segments → {} chunks (chunkSize={}, overlap={})",
-                rawChunks.size(), chunks.size(), chunkSize, overlapSize);
         return chunks;
     }
 
-    // ── Private helpers ─────────────────────────────────────────────────
-
     /**
-     * Core split logic with overlap injection.
+     * Compute how far back to rewind for overlap. Walks backward from
+     * the end of the current chunk to include ~overlapSize chars worth
+     * of whole sentences. This ensures smooth transitions between chunks.
      */
-    private List<String> splitIntoRawChunks(String text) {
-        // Step 1: split on paragraph breaks
-        String[] paragraphs = text.split("\\n\\n+");
-        List<String> segments = new ArrayList<>();
+    private int computeOverlapStart(int chunkFirstSentence, int chunkEndSentence,
+                                    List<String> sentences) {
+        int overlapLen = 0;
+        int cursor = chunkEndSentence - 1;
 
-        for (String para : paragraphs) {
-            if (para.length() <= chunkSize) {
-                segments.add(para);
-            } else {
-                // Step 2: paragraph is too long — split on sentence boundaries
-                segments.addAll(splitLongParagraph(para));
-            }
+        while (cursor > chunkFirstSentence && overlapLen < overlapSize) {
+            overlapLen += sentences.get(cursor).length() + 1;
+            cursor--;
         }
-
-        // Step 3: merge short adjacent segments and inject overlap
-        return mergeAndOverlap(segments);
+        // Return the overlap start (don't go earlier than the first sentence of the chunk)
+        return Math.max(cursor, chunkFirstSentence);
     }
 
     /**
-     * Split a long paragraph at sentence boundaries.
-     * Sentence boundary heuristic: ". " or ".\n"
+     * Approximate the offset of a chunk text within the full document.
+     * Walks from the last known position to find the text.
      */
-    private List<String> splitLongParagraph(String paragraph) {
-        List<String> parts = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-
-        String[] sentences = paragraph.split("(?<=\\.[ \\n])");
-        for (String sentence : sentences) {
-            if (current.length() + sentence.length() > chunkSize && current.length() > 0) {
-                parts.add(current.toString().strip());
-                current = new StringBuilder();
-            }
-            current.append(sentence).append(" ");
+    private int findApproxOffset(String fullText, String chunkText,
+                                  List<ContractChunk> existingChunks) {
+        int searchFrom = 0;
+        if (!existingChunks.isEmpty()) {
+            ContractChunk last = existingChunks.get(existingChunks.size() - 1);
+            searchFrom = Math.max(0, last.getEndOffset() - overlapSize);
         }
-        if (!current.toString().isBlank()) {
-            parts.add(current.toString().strip());
-        }
-        return parts;
-    }
-
-    /**
-     * Merge consecutive short segments so we don't produce tiny chunks,
-     * then inject overlap from the previous chunk's tail.
-     */
-    private List<String> mergeAndOverlap(List<String> segments) {
-        List<String> result = new ArrayList<>();
-        StringBuilder buffer = new StringBuilder();
-
-        for (String seg : segments) {
-            if (buffer.length() + seg.length() + 1 <= chunkSize) {
-                if (!buffer.isEmpty()) buffer.append("\n\n");
-                buffer.append(seg);
-            } else {
-                if (!buffer.isEmpty()) {
-                    result.add(buffer.toString());
-                }
-                // Prepend overlap from end of previous chunk
-                String overlap = "";
-                if (!result.isEmpty()) {
-                    String prev = result.get(result.size() - 1);
-                    overlap = prev.substring(Math.max(0, prev.length() - overlapSize));
-                }
-                buffer = new StringBuilder(overlap);
-                if (!overlap.isEmpty()) buffer.append(" ");
-                buffer.append(seg);
-            }
-        }
-        if (!buffer.isEmpty()) result.add(buffer.toString());
-
-        return result;
+        int idx = fullText.indexOf(chunkText, searchFrom);
+        return idx >= 0 ? idx : searchFrom;
     }
 }

@@ -34,10 +34,10 @@ app:
     dir: /home/grim/Project/ai-contract-system/uploads
     allowed-types: application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
 
-  # Chunking — larger chunks = fewer total = fewer embeddings = faster
+  # Chunking — semantic-friendly size for better RAG search quality
   chunking:
-    size: 2500
-    overlap: 100
+    size: 2000      # ~500 tokens — balances context size with search precision
+    overlap: 200    # 10% overlap to preserve boundary context
 
   # Python AI service
   ai:

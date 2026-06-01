@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # ── RAG ──────────────────────────────────────────────────
     rag_top_k: int = Field(7, env="RAG_TOP_K")
-    rag_min_score: float = Field(0.30, env="RAG_MIN_SCORE")
+    rag_min_score: float = Field(0.20, env="RAG_MIN_SCORE")   # Lower threshold = better recall
 
     # ── Sentence filtering (extraction pipeline) ─────────────
     filter_queries: list[str] = Field(
