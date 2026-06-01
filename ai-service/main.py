@@ -109,10 +109,12 @@ app = create_app()
 # ── Dev entrypoint ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import os
+    is_dev = os.getenv("ENV", "development").lower() in ("development", "dev", "")
     uvicorn.run(
         "main:app",
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level.lower(),
-        reload=True,    # set False in production
+        reload=is_dev,
     )

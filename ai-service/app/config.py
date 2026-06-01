@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(7, env="RAG_TOP_K")
     rag_min_score: float = Field(0.20, env="RAG_MIN_SCORE")   # Lower threshold = better recall
 
+    # ── Analysis queries (used by RAG retrieval to find relevant chunks) ──
+    analysis_queries: list[str] | None = Field(
+        None, env="ANALYSIS_QUERIES"
+    )
+
     # ── Sentence filtering (extraction pipeline) ─────────────
     filter_queries: list[str] = Field(
         ["parties obligations payment terms penalties",

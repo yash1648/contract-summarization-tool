@@ -6,84 +6,19 @@ NVIDIA NIM (NVIDIA Inference Microservices) client using the OpenAI-compatible A
 API docs: https://docs.api.nvidia.com/nim/reference/llm-apis
 Base URL: https://integrate.api.nvidia.com/v1
 Auth:     Bearer token (nvapi-...) from https://build.nvidia.com/
+
+Prompts and response parsers are in core/prompts.py (shared with OllamaClient).
 """
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Optional
 
 from loguru import logger
 from openai import OpenAI, APITimeoutError, RateLimitError, APIStatusError
 
 from app.config import settings
-
-
-# ── Prompts (mirror ollama_client for consistency) ───────────────────────────
-
-COMBINED_PROMPT = """\
-You are a senior legal analyst. Analyse the contract excerpts below and produce TWO outputs separated by the exact delimiter ===RISK_JSON===.
-
-CONTRACT EXCERPTS:
-{context}
-
-PART 1 — Write a concise structured summary:
-- Parties Involved
-- Contract Purpose  
-- Key Obligations
-- Payment Terms
-- Duration & Renewal
-- Termination Conditions
-- Key Deadlines
-Only use info from the excerpts. If missing, say "Not specified."
-
-===RISK_JSON===
-
-PART 2 — Return ONLY valid JSON (no markdown):
-{{"riskScore":<0.0-10.0>,"penaltyClauses":["..."],"terminationRisks":["..."],"liabilityIssues":["..."],"otherFlags":["..."]}}
-"""
-
-CHUNK_SUMMARY_PROMPT = """\
-You are a legal assistant. Summarize the key points of the following contract excerpt in 1-3 sentences.
-Focus on factual legal obligations, terms, and conditions.
-
-EXCERPT:
-{chunk}
-"""
-
-MERGE_SUMMARY_PROMPT = """\
-You are a legal assistant. Combine the following summaries of contract sections into a single cohesive summary.
-
-SECTION SUMMARIES:
-{context}
-"""
-
-FINAL_SUMMARY_PROMPT = """\
-You are a senior legal analyst. Write a final, comprehensive, structured summary of the contract based on the provided section summaries.
-Use the following structure:
-- Parties Involved
-- Contract Purpose  
-- Key Obligations
-- Payment Terms
-- Duration & Renewal
-- Termination Conditions
-- Key Deadlines
-
-If any information is missing, state "Not specified."
-
-SECTION SUMMARIES:
-{context}
-"""
-
-RISK_PROMPT = """\
-You are a legal risk analyst. Return ONLY valid JSON:
-
-CONTRACT EXCERPTS:
-{context}
-
-{{"riskScore":<0.0-10.0>,"penaltyClauses":["..."],"terminationRisks":["..."],"liabilityIssues":["..."],"otherFlags":["..."]}}
-"""
+from app.core import prompts
 
 
 class NVIDIANIMClient:
@@ -140,38 +75,48 @@ class NVIDIANIMClient:
     # ── Public API (mirrors OllamaClient interface) ──────────────────────────
 
     def generate_chunk_summary(self, chunk: str) -> str:
-        prompt = CHUNK_SUMMARY_PROMPT.format(chunk=chunk)
+        prompt = prompts.CHUNK_SUMMARY_PROMPT.format(chunk=chunk)
         logger.debug("Generating chunk summary via NVIDIA NIM")
         return self._chat(prompt).strip()
 
     def merge_summaries(self, summaries: list[str]) -> str:
         context = "\n\n".join(f"Summary {i+1}:\n{s}" for i, s in enumerate(summaries))
-        prompt = MERGE_SUMMARY_PROMPT.format(context=context)
+        prompt = prompts.MERGE_SUMMARY_PROMPT.format(context=context)
         logger.info(f"Merging {len(summaries)} summaries via NVIDIA NIM")
         return self._chat(prompt).strip()
 
     def generate_final_summary(self, summaries: list[str]) -> str:
         context = "\n\n".join(f"Summary {i+1}:\n{s}" for i, s in enumerate(summaries))
-        prompt = FINAL_SUMMARY_PROMPT.format(context=context)
+        prompt = prompts.FINAL_SUMMARY_PROMPT.format(context=context)
         logger.info(f"Generating final summary via NVIDIA NIM from {len(summaries)} merged summaries")
         return self._chat(prompt).strip()
 
     def generate_combined(self, context_chunks: list[str]) -> dict:
-        context = self._format_context(context_chunks)
-        prompt = COMBINED_PROMPT.format(context=context)
+        context = prompts.format_context(context_chunks)
+        prompt = prompts.COMBINED_PROMPT.format(context=context)
         logger.info(
             f"Generating COMBINED analysis via NVIDIA NIM with {len(context_chunks)} chunks "
             f"model={settings.nvidia_model}"
         )
         raw = self._chat(prompt)
-        return self._parse_combined(raw)
+        return prompts.parse_combined(raw)
 
     def generate_risk_analysis(self, context_chunks: list[str]) -> dict:
-        context = self._format_context(context_chunks)
-        prompt = RISK_PROMPT.format(context=context)
+        context = prompts.format_context(context_chunks)
+        prompt = prompts.RISK_PROMPT.format(context=context)
         logger.info(f"Generating risk analysis via NVIDIA NIM with {len(context_chunks)} chunks")
         raw = self._chat(prompt)
-        return self._parse_risk_json(raw)
+        return prompts.parse_risk_json(raw)
+
+    def generate_extraction(self, chunk_text: str) -> dict:
+        """
+        Extract structured fields from a single chunk using the extraction prompt.
+        Used by the extraction-first pipeline.
+        """
+        prompt = prompts.EXTRACTION_PROMPT.format(chunk=chunk_text)
+        logger.debug("Generating extraction analysis via NVIDIA NIM")
+        raw = self._chat(prompt)
+        return prompts.parse_extraction(raw)
 
     # ── Private helpers ──────────────────────────────────────────────────────
 
@@ -194,71 +139,6 @@ class NVIDIANIMClient:
         )
 
         return response.choices[0].message.content or ""
-
-    def _parse_combined(self, raw: str) -> dict:
-        """Parse the combined response split by ===RISK_JSON===."""
-        delimiter = "===RISK_JSON==="
-
-        if delimiter in raw:
-            parts = raw.split(delimiter, 1)
-            summary = parts[0].strip()
-            risk_raw = parts[1].strip()
-        else:
-            json_match = re.search(r'\{[^{}]*"riskScore"[^{}]*\}', raw, re.DOTALL)
-            if json_match:
-                json_start = json_match.start()
-                summary = raw[:json_start].strip()
-                risk_raw = json_match.group(0)
-            else:
-                logger.warning("Could not split combined response, treating entire response as summary")
-                summary = raw.strip()
-                risk_raw = ""
-
-        risk_data = self._parse_risk_json(risk_raw) if risk_raw else {
-            "riskScore": 0.0,
-            "penaltyClauses": [],
-            "terminationRisks": [],
-            "liabilityIssues": [],
-            "otherFlags": [],
-        }
-
-        risk_data["summary"] = summary
-        return risk_data
-
-    @staticmethod
-    def _format_context(chunks: list[str]) -> str:
-        parts = []
-        for i, chunk in enumerate(chunks, 1):
-            parts.append(f"--- EXCERPT {i} ---\n{chunk.strip()}")
-        return "\n\n".join(parts)
-
-    @staticmethod
-    def _parse_risk_json(raw: str) -> dict:
-        cleaned = re.sub(r"```(?:json)?", "", raw).strip().strip("`").strip()
-        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-        if match:
-            cleaned = match.group(0)
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse risk JSON: {e}\nRaw: {raw[:500]}")
-            data = {}
-
-        risk_score = float(data.get("riskScore", 0.0))
-        risk_score = max(0.0, min(10.0, risk_score))
-
-        def ensure_list(val):
-            if isinstance(val, list):
-                return [str(x) for x in val if x]
-            return []
-
-        return {
-            "riskScore":        risk_score,
-            "penaltyClauses":   ensure_list(data.get("penaltyClauses")),
-            "terminationRisks": ensure_list(data.get("terminationRisks")),
-            "liabilityIssues":  ensure_list(data.get("liabilityIssues")),
-            "otherFlags":       ensure_list(data.get("otherFlags")),
-        }
 
 
 # Singleton

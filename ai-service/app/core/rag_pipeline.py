@@ -33,16 +33,24 @@ from app.models.schemas import (
 )
 
 
-# ── Single combined retrieval query set ──────────────────────────────────────
-# Merged and reduced to minimise FAISS round-trips.
-_ANALYSIS_QUERIES = [
-    "parties obligations payment terms penalties",
-    "termination liability indemnification risks",
-]
+# ── Analysis queries come from settings (configurable per environment) ─────
+# These are used by the RAG retrieval step to find relevant chunks.
+# Fallback defaults match the original hardcoded values.
+_ANALYSIS_QUERIES: list[str] | None = None  # lazy-loaded on first use
 
 # ── Filter query embeddings cache (lazy-loaded) ────────────────────────────
 _FILTER_QUERY_EMBEDDINGS: np.ndarray | None = None
-_FILTER_QUERIES_INITIALIZED: bool = False
+
+
+def _get_analysis_queries() -> list[str]:
+    """Return analysis queries from settings, with fallback defaults."""
+    global _ANALYSIS_QUERIES
+    if _ANALYSIS_QUERIES is None:
+        _ANALYSIS_QUERIES = settings.analysis_queries or [
+            "parties obligations payment terms penalties",
+            "termination liability indemnification risks",
+        ]
+    return _ANALYSIS_QUERIES
 
 
 def _get_filter_query_embeddings() -> np.ndarray:
@@ -50,10 +58,9 @@ def _get_filter_query_embeddings() -> np.ndarray:
     Cache and return embeddings for filter queries (loaded lazily on first use).
     This ensures embedder is loaded before we try to encode the queries.
     """
-    global _FILTER_QUERY_EMBEDDINGS, _FILTER_QUERIES_INITIALIZED
+    global _FILTER_QUERY_EMBEDDINGS
 
-    if _FILTER_QUERY_EMBEDDINGS is None and not _FILTER_QUERIES_INITIALIZED:
-        _FILTER_QUERIES_INITIALIZED = True
+    if _FILTER_QUERY_EMBEDDINGS is None:
         queries = settings.filter_queries
         if queries:
             logger.info(f"Encoding {len(queries)} filter queries")
@@ -365,17 +372,9 @@ class RagPipeline:
         # Step 3: Reconstruct mini-chunk
         mini_chunk = reconstruct_mini_chunk(filtered_sentences)
 
-        # Step 4: Extract structured data using combined analysis
-        combined = llm_client.generate_combined([mini_chunk])
-        extraction = {
-            "parties": combined.get("parties", []),
-            "obligations": combined.get("obligations", []),
-            "payment_terms": combined.get("payment_terms", []),
-            "dates": combined.get("dates", []),
-            "penalties": combined.get("penaltyClauses", []),
-            "termination": combined.get("terminationRisks", []),
-            "other": combined.get("otherFlags", []),
-        }
+        # Step 4: Extract structured data using the dedicated extraction prompt
+        # (uses EXTRACTION_PROMPT which asks for parties/obligations/payment_terms etc.)
+        extraction = llm_client.generate_extraction(mini_chunk)
 
         # Step 5: Cache result
         cache_result(text, extraction)
@@ -411,7 +410,7 @@ class RagPipeline:
         # ── RAG retrieval: find the most relevant chunks (single FAISS pass) ──
         context_chunks = self._retrieve_context(
             contract_id=request.contractId,
-            queries=_ANALYSIS_QUERIES,
+            queries=_get_analysis_queries(),
             fallback_texts=request.chunkTexts,
             has_index=has_index,
         )

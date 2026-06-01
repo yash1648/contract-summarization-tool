@@ -129,6 +129,13 @@ class LLMClient:
             operation="generate_risk_analysis",
         )
 
+    def generate_extraction(self, chunk_text: str) -> dict:
+        return self._with_fallback(
+            nvidia_fn=lambda: nvidia_nim_client.generate_extraction(chunk_text),
+            ollama_fn=lambda: ollama_client.generate_extraction(chunk_text),
+            operation="generate_extraction",
+        )
+
     def is_reachable(self) -> bool:
         """Check if at least one provider is reachable (NVIDIA preferred)."""
         self._ensure_nvidia_loaded()
