@@ -705,16 +705,6 @@
                 }
             });
 
-            // ── Convert flash messages to toasts on page load ─────
-            document.querySelectorAll('[data-toast-message]').forEach(function(el) {
-                var msg = el.getAttribute('data-toast-message');
-                var type = el.getAttribute('data-toast-type') || 'info';
-                if (msg) {
-                    window.showToast(msg, type);
-                }
-                el.remove();
-            });
-
             // ── Escape HTML utility ────────────────────────────────
             window.escapeHtml = function(text) {
                 var d = document.createElement('div');
@@ -839,6 +829,16 @@
 
                 setTimeout(function() { dismissToast(toast); }, duration);
             };
+
+            // ── Convert flash messages to toasts on page load ─────
+            document.querySelectorAll('[data-toast-message]').forEach(function(el) {
+                var msg = el.getAttribute('data-toast-message');
+                var type = el.getAttribute('data-toast-type') || 'info';
+                if (msg) {
+                    window.showToast(msg, type);
+                }
+                el.remove();
+            });
         })();
     </script>
 </body>
