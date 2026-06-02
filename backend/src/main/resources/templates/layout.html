@@ -412,9 +412,6 @@
             box-shadow: 0 8px 32px rgba(0,0,0,0.35);
             animation: slideIn 0.35s ease-out;
             padding: 0.875rem 1.125rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
             border: 1px solid;
             font-size: 0.875rem;
             line-height: 1.4;
@@ -436,23 +433,6 @@
             color: #60a5fa;
             border-color: rgba(59, 130, 246, 0.22);
             border-left: 4px solid #60a5fa;
-        }
-        .toast-notification .toast-close {
-            margin-left: auto;
-            background: none;
-            border: none;
-            color: inherit;
-            opacity: 0.5;
-            cursor: pointer;
-            padding: 0.2rem 0.3rem;
-            font-size: 1.2rem;
-            line-height: 1;
-            border-radius: 4px;
-            transition: opacity 0.15s, background 0.15s;
-        }
-        .toast-notification .toast-close:hover {
-            opacity: 1;
-            background: rgba(255,255,255,0.08);
         }
 
         /* ── Enhanced toast (rich layout with title + actions) ─── */
@@ -892,23 +872,10 @@
                 duration = duration || 8000;
 
                 var container = document.getElementById('toastContainer');
-                var iconMap = {
-                    success: 'bi-check-circle-fill',
-                    error:   'bi-exclamation-triangle-fill',
-                    info:    'bi-info-circle-fill'
-                };
-                var icon = iconMap[type] || iconMap.info;
-
                 var toast = document.createElement('div');
                 toast.className = 'toast-notification toast-' + type;
-                toast.innerHTML = '<i class="bi ' + icon + ' flex-shrink-0"></i>' +
-                    '<span>' + window.escapeHtml(message) + '</span>' +
-                    '<button class="toast-close" aria-label="Close">&times;</button>';
+                toast.textContent = message;
                 container.appendChild(toast);
-
-                toast.querySelector('.toast-close').addEventListener('click', function() {
-                    dismissToast(toast);
-                });
 
                 setTimeout(function() { dismissToast(toast); }, duration);
             };

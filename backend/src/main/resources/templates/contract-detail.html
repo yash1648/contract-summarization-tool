@@ -161,13 +161,13 @@
                         // Status changed
                         if (newStatus === 'COMPLETED') {
                             window.showToast(
-                                '✓ Analysis complete for ' + (data.fileName || 'this contract') + '!',
+                                'Analysis complete for ' + (data.fileName || 'this contract'),
                                 'success'
                             );
                             setTimeout(function() { window.location.reload(); }, 3000);
                         } else if (newStatus === 'FAILED') {
                             window.showToast(
-                                '✗ Analysis failed for ' + (data.fileName || 'this contract') + '. Please try again.',
+                                'Analysis failed for ' + (data.fileName || 'this contract') + '. Please try again.',
                                 'error'
                             );
                             setTimeout(function() { window.location.reload(); }, 3000);
