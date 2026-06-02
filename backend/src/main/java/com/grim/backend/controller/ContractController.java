@@ -83,9 +83,6 @@ public class ContractController {
                 }
             });
 
-            redirectAttributes.addFlashAttribute("successMessage",
-                    response.getFileName() + " uploaded successfully. AI Analysis is running in the background.");
-
             return "redirect:/contracts/" + response.getContractId();
         } catch (Exception e) {
             log.error("Upload failed: {}", e.getMessage());
