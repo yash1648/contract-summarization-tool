@@ -400,48 +400,190 @@
             width: calc(100% - 2rem);
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.625rem;
             pointer-events: none;
         }
         .toast-container-custom > * { pointer-events: auto; }
+
+        /* ── Base toast (simple text, used by showToast()) ─────── */
         .toast-notification {
-            border-radius: var(--radius-sm);
-            backdrop-filter: blur(12px);
-            box-shadow: var(--shadow);
-            animation: slideIn 0.3s ease-out;
-            padding: 1rem 1.25rem;
+            border-radius: 10px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+            animation: slideIn 0.35s ease-out;
+            padding: 0.875rem 1.125rem;
             display: flex;
             align-items: center;
             gap: 0.75rem;
             border: 1px solid;
+            font-size: 0.875rem;
+            line-height: 1.4;
         }
         .toast-notification.toast-success {
-            background: rgba(16, 185, 129, 0.15);
+            background: rgba(16, 185, 129, 0.14);
             color: #34d399;
-            border-color: rgba(16, 185, 129, 0.25);
+            border-color: rgba(16, 185, 129, 0.22);
+            border-left: 4px solid #34d399;
         }
         .toast-notification.toast-error {
-            background: rgba(239, 68, 68, 0.15);
+            background: rgba(239, 68, 68, 0.14);
             color: #f87171;
-            border-color: rgba(239, 68, 68, 0.25);
+            border-color: rgba(239, 68, 68, 0.22);
+            border-left: 4px solid #f87171;
         }
         .toast-notification.toast-info {
-            background: rgba(59, 130, 246, 0.15);
+            background: rgba(59, 130, 246, 0.14);
             color: #60a5fa;
-            border-color: rgba(59, 130, 246, 0.25);
+            border-color: rgba(59, 130, 246, 0.22);
+            border-left: 4px solid #60a5fa;
         }
         .toast-notification .toast-close {
             margin-left: auto;
             background: none;
             border: none;
             color: inherit;
-            opacity: 0.6;
+            opacity: 0.5;
             cursor: pointer;
-            padding: 0.25rem;
-            font-size: 1.1rem;
+            padding: 0.2rem 0.3rem;
+            font-size: 1.2rem;
             line-height: 1;
+            border-radius: 4px;
+            transition: opacity 0.15s, background 0.15s;
         }
-        .toast-notification .toast-close:hover { opacity: 1; }
+        .toast-notification .toast-close:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.08);
+        }
+
+        /* ── Enhanced toast (rich layout with title + actions) ─── */
+        .toast-enhanced {
+            border-radius: 10px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            animation: slideIn 0.35s ease-out;
+            border: 1px solid;
+            overflow: hidden;
+        }
+        .toast-enhanced .toast-body {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 1rem 1.125rem 0.75rem;
+        }
+        .toast-enhanced .toast-icon {
+            font-size: 1.3rem;
+            line-height: 1.4;
+            flex-shrink: 0;
+        }
+        .toast-enhanced .toast-content {
+            flex: 1;
+            min-width: 0;
+            padding-top: 0.05rem;
+        }
+        .toast-enhanced .toast-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            line-height: 1.3;
+            color: inherit;
+        }
+        .toast-enhanced .toast-message {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            line-height: 1.35;
+            margin-top: 0.2rem;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+        .toast-enhanced .toast-close {
+            background: none;
+            border: none;
+            color: inherit;
+            opacity: 0.45;
+            cursor: pointer;
+            padding: 0.15rem 0.25rem;
+            font-size: 1.2rem;
+            line-height: 1;
+            border-radius: 4px;
+            transition: opacity 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+        .toast-enhanced .toast-close:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.08);
+        }
+        .toast-enhanced .toast-actions {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.5rem 1.125rem 0.875rem;
+        }
+        .toast-enhanced .toast-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.8rem;
+            border-radius: 6px;
+            border: 1px solid;
+            font-size: 0.78rem;
+            font-weight: 500;
+            cursor: pointer;
+            background: transparent;
+            transition: all 0.15s ease;
+            text-decoration: none;
+        }
+        .toast-enhanced .toast-btn-primary {
+            background: rgba(255,255,255,0.06);
+        }
+        .toast-enhanced .toast-btn-primary:hover {
+            background: rgba(255,255,255,0.13);
+        }
+        .toast-enhanced .toast-btn-dismiss {
+            opacity: 0.6;
+        }
+        .toast-enhanced .toast-btn-dismiss:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.06);
+        }
+
+        /* Success variant */
+        .toast-enhanced.toast-success {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.2);
+            border-left: 4px solid #34d399;
+        }
+        .toast-enhanced.toast-success .toast-icon { color: #34d399; }
+        .toast-enhanced.toast-success .toast-title { color: #34d399; }
+        .toast-enhanced.toast-success .toast-btn-primary {
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+        .toast-enhanced.toast-success .toast-btn-primary:hover {
+            background: rgba(16, 185, 129, 0.15);
+        }
+        .toast-enhanced.toast-success .toast-btn-dismiss { color: #34d399; }
+
+        /* Error variant */
+        .toast-enhanced.toast-error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.2);
+            border-left: 4px solid #f87171;
+        }
+        .toast-enhanced.toast-error .toast-icon { color: #f87171; }
+        .toast-enhanced.toast-error .toast-title { color: #f87171; }
+        .toast-enhanced.toast-error .toast-btn-primary {
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+        .toast-enhanced.toast-error .toast-btn-primary:hover {
+            background: rgba(239, 68, 68, 0.15);
+        }
+        .toast-enhanced.toast-error .toast-btn-dismiss { color: #f87171; }
+
+        /* Dismiss animation (applied via JS) */
+        .toast-dismiss {
+            opacity: 0 !important;
+            transform: translateX(40px) !important;
+            transition: opacity 0.35s ease, transform 0.35s ease !important;
+        }
 
         /* ── Search result card ───────────────────────────────────── */
         .search-result-card {
@@ -669,6 +811,78 @@
                 return d.innerHTML;
             };
 
+            // ── Dismiss a toast element with animation ──────────
+            function dismissToast(el) {
+                if (!el || !el.parentElement) return;
+                el.classList.add('toast-dismiss');
+                setTimeout(function() { if (el.parentElement) el.remove(); }, 400);
+            }
+
+            // ── Show a rich enhanced toast (title + message + action buttons) ─
+            function showEnhancedToast(type, title, message, actions) {
+                type = type || 'info';
+                actions = actions || [];
+                var container = document.getElementById('toastContainer');
+                if (!container) return;
+
+                var iconMap = {
+                    success: 'bi-check-circle-fill',
+                    error:   'bi-exclamation-triangle-fill',
+                    info:    'bi-info-circle-fill'
+                };
+
+                var toast = document.createElement('div');
+                toast.className = 'toast-enhanced toast-' + type;
+
+                var icon = iconMap[type] || iconMap.info;
+                var actionsHtml = actions.map(function(a) {
+                    var cls = 'toast-btn toast-btn-' + (a.primary ? 'primary' : 'dismiss');
+                    var attr = a.href ? 'href="' + a.href + '"' : '';
+                    var tag = a.href ? 'a' : 'button';
+                    return '<' + tag + ' ' + attr + ' class="' + cls + '">' +
+                           (a.icon ? '<i class="bi ' + a.icon + '"></i> ' : '') +
+                           window.escapeHtml(a.label) + '</' + tag + '>';
+                }).join('');
+
+                toast.innerHTML =
+                    '<div class="toast-body">' +
+                        '<div class="toast-icon"><i class="bi ' + icon + '"></i></div>' +
+                        '<div class="toast-content">' +
+                            '<div class="toast-title">' + window.escapeHtml(title) + '</div>' +
+                            '<div class="toast-message">' + window.escapeHtml(message) + '</div>' +
+                        '</div>' +
+                        '<button class="toast-close" aria-label="Close">&times;</button>' +
+                    '</div>' +
+                    '<div class="toast-actions">' + actionsHtml + '</div>';
+
+                // Wire up buttons
+                container.appendChild(toast);
+
+                // Close button
+                toast.querySelector('.toast-close').addEventListener('click', function() {
+                    dismissToast(toast);
+                });
+
+                // Action buttons (non-link)
+                toast.querySelectorAll('.toast-btn:not(a)').forEach(function(btn) {
+                    btn.addEventListener('click', function() { dismissToast(toast); });
+                });
+
+                // Links open in same tab
+                toast.querySelectorAll('a.toast-btn').forEach(function(link) {
+                    link.addEventListener('click', function() {
+                        // Let the link navigate naturally
+                        dismissToast(toast);
+                    });
+                });
+
+                // Auto-dismiss
+                var autoDismiss = 20000;
+                setTimeout(function() { dismissToast(toast); }, autoDismiss);
+
+                return toast;
+            }
+
             // ── Poll for background analysis completions ──────────
             var notifiedContracts = new Set();
             function pollAnalysisUpdates() {
@@ -680,40 +894,26 @@
                             notifiedContracts.add(u.contractId);
 
                             var link = '/analysis/' + u.contractId + '/results';
-                            var escaped = window.escapeHtml(u.fileName);
+                            var name = u.fileName || 'contract';
                             if (u.status === 'COMPLETED') {
-                                window.showToast(
-                                    '✓ Analysis complete for ' + escaped,
-                                    'success', 12000
+                                showEnhancedToast(
+                                    'success',
+                                    'Analysis Complete',
+                                    name,
+                                    [
+                                        { label: 'View Results', icon: 'bi-eye', href: link, primary: true },
+                                        { label: 'Dismiss', icon: 'bi-x-lg' }
+                                    ]
                                 );
-                                // Also inject a clickable link after the toast container
-                                var container = document.getElementById('toastContainer');
-                                var linkToast = document.createElement('div');
-                                linkToast.className = 'toast-notification toast-info';
-                                linkToast.style.cursor = 'pointer';
-                                linkToast.innerHTML =
-                                    '<i class="bi bi-eye flex-shrink-0"></i>' +
-                                    '<span><a href="' + link + '" style="color:inherit;text-decoration:underline;">' +
-                                    'View results for ' + escaped + '</a></span>' +
-                                    '<button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
-                                linkToast.addEventListener('click', function(e) {
-                                    if (e.target.tagName !== 'A' && e.target.tagName !== 'BUTTON') {
-                                        window.location.href = link;
-                                    }
-                                });
-                                container.appendChild(linkToast);
-                                setTimeout(function() {
-                                    if (linkToast.parentElement) {
-                                        linkToast.style.transition = 'opacity 0.3s, transform 0.3s';
-                                        linkToast.style.opacity = '0';
-                                        linkToast.style.transform = 'translateX(40px)';
-                                        setTimeout(function() { linkToast.remove(); }, 300);
-                                    }
-                                }, 20000);
                             } else if (u.status === 'FAILED') {
-                                window.showToast(
-                                    '✗ Analysis failed for ' + escaped,
-                                    'error', 15000
+                                showEnhancedToast(
+                                    'error',
+                                    'Analysis Failed',
+                                    name,
+                                    [
+                                        { label: 'Try Again', icon: 'bi-arrow-clockwise', href: '/contracts/upload', primary: true },
+                                        { label: 'Dismiss', icon: 'bi-x-lg' }
+                                    ]
                                 );
                             }
                         });
@@ -729,7 +929,7 @@
                 setInterval(pollAnalysisUpdates, 5000); // then every 5s
             }
 
-            // ── Show dynamic toast notification ────────────────────
+            // ── Show simple text toast notification ──────────────
             window.showToast = function(message, type, duration) {
                 type = type || 'info';    // 'success' | 'error' | 'info'
                 duration = duration || 8000;
@@ -746,17 +946,14 @@
                 toast.className = 'toast-notification toast-' + type;
                 toast.innerHTML = '<i class="bi ' + icon + ' flex-shrink-0"></i>' +
                     '<span>' + window.escapeHtml(message) + '</span>' +
-                    '<button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
+                    '<button class="toast-close" aria-label="Close">&times;</button>';
                 container.appendChild(toast);
 
-                setTimeout(function() {
-                    if (toast.parentElement) {
-                        toast.style.transition = 'opacity 0.3s, transform 0.3s';
-                        toast.style.opacity = '0';
-                        toast.style.transform = 'translateX(40px)';
-                        setTimeout(function() { toast.remove(); }, 300);
-                    }
-                }, duration);
+                toast.querySelector('.toast-close').addEventListener('click', function() {
+                    dismissToast(toast);
+                });
+
+                setTimeout(function() { dismissToast(toast); }, duration);
             };
         })();
     </script>
