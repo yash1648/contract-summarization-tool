@@ -4,115 +4,125 @@
 <body>
 <th:block th:fragment="content">
 
-    <div class="d-flex align-items-center mb-4">
-        <h2 class="fw-bold mb-0 text-white">
-            <i class="bi bi-upload me-2" style="color:var(--accent);"></i>Upload Contract
-        </h2>
+    <div class="page-heading">
+        <i class="bi bi-upload heading-icon"></i>
+        <h2>Upload Contract</h2>
     </div>
 
     <div class="row justify-content-center">
-        <div class="col-md-7">
+        <div class="col-lg-8">
+
+            <!-- Upload Card -->
             <div class="card shadow-sm">
-                <div class="card-header fw-semibold">Select a Contract File</div>
+                <div class="card-header fw-semibold">
+                    <i class="bi bi-cloud-upload me-2"></i>Select a Contract File
+                </div>
                 <div class="card-body">
+                    <form th:action="@{/contracts/upload}" method="post" enctype="multipart/form-data" id="uploadForm">
 
-                    <form th:action="@{/contracts/upload}" method="post" enctype="multipart/form-data"
-                          id="uploadForm">
-
-                        <!-- Drop zone -->
-                        <div class="border-2 border-dashed rounded p-5 text-center mb-3"
+                        <!-- Drag & Drop Zone -->
+                        <div class="drop-zone text-center p-5 mb-3 rounded-3"
                              id="dropZone"
-                             style="border:2px dashed var(--accent) !important; cursor:pointer; background:rgba(59,130,246,0.1);">
-
-                            <i class="bi bi-cloud-upload display-4" style="color:var(--accent);"></i>
-                            <p class="mt-2 text-muted">Drag &amp; drop your PDF or DOCX here</p>
-                            <p class="text-muted small">or</p>
-
-                            <label for="fileInput" class="btn btn-outline-primary">Browse File</label>
-                            <input type="file"
-                                   id="fileInput"
-                                   name="file"
-                                   class="d-none"
-                                   accept=".pdf,.docx"
-                                   required/>
-                        </div>
-
-                        <!-- File preview -->
-                        <div id="filePreview" class="d-none alert alert-info">
-                            <i class="bi bi-file-earmark me-2"></i>
-                            <span id="fileName"></span>
-                            <span class="ms-2 text-muted small" id="fileSize"></span>
+                             style="border:2px dashed rgba(59,130,246,0.3); cursor:pointer; background:rgba(59,130,246,0.04); transition:all 0.3s ease;">
+                            <div id="dropZoneContent">
+                                <i class="bi bi-cloud-upload display-3" style="color:var(--accent);"></i>
+                                <p class="mt-2 mb-1 fw-semibold">Drag &amp; drop your PDF or DOCX here</p>
+                                <p class="text-muted small mb-3">or</p>
+                                <label for="fileInput" class="btn btn-outline-primary">
+                                    <i class="bi bi-folder2-open me-1"></i> Browse File
+                                </label>
+                            </div>
+                            <div id="filePreview" class="d-none">
+                                <i class="bi bi-file-earmark-check display-4 text-success"></i>
+                                <p class="mt-2 mb-0 fw-semibold" id="fileName"></p>
+                                <p class="text-muted small mb-0" id="fileSize"></p>
+                                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="resetUpload()">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i> Choose different file
+                                </button>
+                            </div>
+                            <input type="file" id="fileInput" name="file" class="d-none" accept=".pdf,.docx" required/>
                         </div>
 
                         <!-- Constraints -->
-                        <ul class="small text-muted mb-3">
-                            <li>Accepted formats: <strong>PDF</strong>, <strong>DOCX</strong></li>
-                            <li>Maximum file size: <strong>20 MB</strong></li>
-                            <li>Text must be selectable (scanned images are not supported)</li>
-                        </ul>
+                        <div class="d-flex flex-wrap gap-3 small text-muted mb-3">
+                            <span><i class="bi bi-filetype-pdf me-1"></i>PDF</span>
+                            <span><i class="bi bi-filetype-docx me-1"></i>DOCX</span>
+                            <span><i class="bi bi-hdd me-1"></i>Max 20 MB</span>
+                            <span><i class="bi bi-file-text me-1"></i>Text must be selectable</span>
+                        </div>
 
                         <div class="d-flex gap-2">
                             <button type="submit" class="btn btn-primary" id="submitBtn">
-                                <i class="bi bi-upload me-1"></i>Upload &amp; Process
+                                <i class="bi bi-upload me-1"></i> Upload &amp; Process
                             </button>
                             <a th:href="@{/contracts}" class="btn btn-outline-secondary">Cancel</a>
                         </div>
-
                     </form>
 
                     <!-- Progress -->
-                    <div id="progressArea" class="d-none mt-3">
-                        <div class="progress">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated w-100 bg-primary"></div>
+                    <div id="progressArea" class="d-none mt-4 p-4 text-center rounded-3" style="background:rgba(59,130,246,0.05); border:1px solid rgba(59,130,246,0.15);">
+                        <div class="progress mb-3" style="height:8px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:100%"></div>
                         </div>
-                        <p class="text-muted small mt-2 text-center">
-                            Uploading and extracting text… please wait.
-                        </p>
+                        <p class="mb-0 fw-semibold"><i class="bi bi-hourglass-split me-2"></i>Uploading and extracting text…</p>
+                        <p class="text-muted small mb-0">This may take a moment for large documents.</p>
                     </div>
-
                 </div>
             </div>
 
-            <!-- Pipeline explanation -->
+            <!-- Pipeline Steps -->
             <div class="card mt-3 shadow-sm">
-                <div class="card-header fw-semibold">What happens after upload?</div>
+                <div class="card-header fw-semibold">
+                    <i class="bi bi-diagram-3 me-2"></i>What happens after upload?
+                </div>
                 <div class="card-body">
-
-                    <div class="d-flex align-items-start mb-2">
-                        <span class="badge bg-primary me-3">1</span>
-                        <div><strong>Text Extraction</strong> — Apache PDFBox / POI extracts raw text</div>
-                    </div>
-
-                    <div class="d-flex align-items-start mb-2">
-                        <span class="badge bg-primary me-3">2</span>
-                        <div><strong>Chunking</strong> — Text split into 300–500 token overlapping segments</div>
-                    </div>
-
-                    <div class="d-flex align-items-start mb-2">
-                        <span class="badge me-3 bg-primary text-white">3</span>
-                        <div>
-                            <strong>Embedding</strong> —
-                            Chunks sent to Python AI service for vector embedding into FAISS
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <span class="badge bg-primary rounded-circle p-2 mt-1" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;">1</span>
+                                <div>
+                                    <strong class="d-block">Text Extraction</strong>
+                                    <small class="text-muted">Apache PDFBox / POI extracts raw text from your document</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <span class="badge bg-primary rounded-circle p-2 mt-1" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;">2</span>
+                                <div>
+                                    <strong class="d-block">Chunking</strong>
+                                    <small class="text-muted">Text split into 300–500 token overlapping segments</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <span class="badge bg-primary rounded-circle p-2 mt-1" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;">3</span>
+                                <div>
+                                    <strong class="d-block">Vector Embedding</strong>
+                                    <small class="text-muted">Chunks sent to Python AI service for FAISS embedding</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-start gap-3">
+                                <span class="badge bg-primary rounded-circle p-2 mt-1" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;">4</span>
+                                <div>
+                                    <strong class="d-block">AI Analysis</strong>
+                                    <small class="text-muted">RAG retrieval + LLM summarization + risk scoring</small>
+                                </div>
+                            </div>
                         </div>
                     </div>
-
-                    <div class="d-flex align-items-start">
-                        <span class="badge me-3 bg-primary text-white">4</span>
-                        <div>
-                            <strong>Analysis</strong> —
-                            RAG retrieval + LLM summarization + risk scoring
-                        </div>
-                    </div>
-
                 </div>
             </div>
-
         </div>
     </div>
 
     <script>
         const input    = document.getElementById('fileInput');
         const dropZone = document.getElementById('dropZone');
+        const dropContent = document.getElementById('dropZoneContent');
         const preview  = document.getElementById('filePreview');
         const nameEl   = document.getElementById('fileName');
         const sizeEl   = document.getElementById('fileSize');
@@ -120,20 +130,50 @@
         const progress = document.getElementById('progressArea');
         const submitBtn= document.getElementById('submitBtn');
 
+        var MAX_FILE_SIZE_MB = 20;
+
+        function showPreview(file) {
+            const isPdf = file.name.toLowerCase().endsWith('.pdf');
+            const isDocx = file.name.toLowerCase().endsWith('.docx');
+            if (!isPdf && !isDocx) {
+                alert('Please select a PDF or DOCX file.');
+                input.value = '';
+                return;
+            }
+            if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                alert('File exceeds ' + MAX_FILE_SIZE_MB + ' MB limit. Please select a smaller file.');
+                input.value = '';
+                return;
+            }
+            nameEl.textContent = file.name;
+            sizeEl.textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+            dropContent.classList.add('d-none');
+            preview.classList.remove('d-none');
+        }
+
+        function resetUpload() {
+            input.value = '';
+            dropContent.classList.remove('d-none');
+            preview.classList.add('d-none');
+        }
+
         dropZone.addEventListener('click', () => input.click());
 
         dropZone.addEventListener('dragover', e => {
             e.preventDefault();
-            dropZone.style.background='rgba(59,130,246,0.2)';
+            dropZone.style.borderColor = 'var(--accent)';
+            dropZone.style.background = 'rgba(59,130,246,0.1)';
         });
 
         dropZone.addEventListener('dragleave', () => {
-            dropZone.style.background='rgba(59,130,246,0.1)';
+            dropZone.style.borderColor = 'rgba(59,130,246,0.3)';
+            dropZone.style.background = 'rgba(59,130,246,0.04)';
         });
 
         dropZone.addEventListener('drop', e => {
             e.preventDefault();
-            dropZone.style.background='rgba(59,130,246,0.1)';
+            dropZone.style.borderColor = 'rgba(59,130,246,0.3)';
+            dropZone.style.background = 'rgba(59,130,246,0.04)';
             if (e.dataTransfer.files.length) {
                 input.files = e.dataTransfer.files;
                 showPreview(input.files[0]);
@@ -144,15 +184,9 @@
             if (input.files.length) showPreview(input.files[0]);
         });
 
-        function showPreview(file) {
-            nameEl.textContent = file.name;
-            sizeEl.textContent = '(' + (file.size / 1024 / 1024).toFixed(2) + ' MB)';
-            preview.classList.remove('d-none');
-        }
-
         form.addEventListener('submit', () => {
             setTimeout(() => submitBtn.disabled = true, 0);
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing…';
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Processing…';
             progress.classList.remove('d-none');
         });
     </script>

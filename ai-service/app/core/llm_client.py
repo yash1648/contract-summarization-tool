@@ -76,6 +76,7 @@ class LLMClient:
       - generate_final_summary(summaries)     → str
       - generate_combined(context_chunks)     → dict
       - generate_risk_analysis(context_chunks) → dict
+      - generate_answer(query, chunks)        → str
       - is_reachable()                        → bool
     """
 
@@ -127,6 +128,13 @@ class LLMClient:
             nvidia_fn=lambda: nvidia_nim_client.generate_risk_analysis(context_chunks),
             ollama_fn=lambda: ollama_client.generate_risk_analysis(context_chunks),
             operation="generate_risk_analysis",
+        )
+
+    def generate_answer(self, query: str, context_chunks: list[str]) -> str:
+        return self._with_fallback(
+            nvidia_fn=lambda: nvidia_nim_client.generate_answer(query, context_chunks),
+            ollama_fn=lambda: ollama_client.generate_answer(query, context_chunks),
+            operation="generate_answer",
         )
 
     def generate_extraction(self, chunk_text: str) -> dict:

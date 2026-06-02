@@ -4,33 +4,36 @@
 <body>
 <th:block th:fragment="content">
 
-    <div class="d-flex align-items-center mb-4">
-        <h2 class="fw-bold mb-0 text-white">
-            <i class="bi bi-search me-2" style="color:var(--accent);"></i>Semantic Search
-        </h2>
+    <div class="page-heading">
+        <i class="bi bi-search heading-icon"></i>
+        <h2>Semantic Search</h2>
     </div>
-    <p class="text-muted mb-4">Ask questions about your contracts in natural language.</p>
+
+    <p class="text-muted mb-4">Ask questions about your contracts in natural language. Powered by FAISS vector similarity search.</p>
 
     <!-- AI Status Banner -->
-    <div class="alert d-flex align-items-center gap-3 p-3 mb-4"
-         style="border-radius: 12px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24;">
-        <i class="bi bi-cpu text-warning fs-4 mt-1"></i>
+    <div class="d-flex align-items-start gap-3 p-3 mb-4 rounded-3"
+         style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2);">
+        <i class="bi bi-cpu text-warning fs-4 mt-1 flex-shrink-0"></i>
         <div>
-            <strong class="text-white">Requires Python AI Service</strong>
+            <strong class="d-block">Requires Python AI Service</strong>
             <p class="mb-0 text-muted small mt-1">
                 Semantic search uses FAISS vector similarity search powered by the Python microservice.
-                Results below are stub placeholders until the AI service is enabled.
+                Results are based on actual embeddings when the AI service is active.
             </p>
         </div>
     </div>
 
     <!-- Search Form -->
     <div class="card mb-4">
-        <div class="card-body p-4">
+        <div class="card-header fw-semibold">
+            <i class="bi bi-question-circle me-2"></i>Ask a Question
+        </div>
+        <div class="card-body">
             <form id="searchForm">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="form-label fw-semibold">Contract (optional)</label>
+                    <div class="col-lg-4">
+                        <label class="form-label fw-semibold" for="contractSelect">Contract (optional)</label>
                         <select id="contractSelect" class="form-select">
                             <option value="">— Search all contracts —</option>
                             <option th:each="c : ${contracts}"
@@ -38,17 +41,17 @@
                                     th:text="${c.fileName}">contract.pdf</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Your question</label>
+                    <div class="col-lg-6">
+                        <label class="form-label fw-semibold" for="queryInput">Your question</label>
                         <input type="text" id="queryInput"
                                class="form-control"
                                placeholder="e.g. What are the penalty clauses for late payment?"
                                required/>
                         <div id="queryError" class="text-danger small mt-1 d-none"></div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-lg-2">
                         <button type="button" class="btn btn-primary w-100" onclick="submitSearch()">
-                            <i class="bi bi-search me-1"></i>Search
+                            <i class="bi bi-search me-1"></i> Search
                         </button>
                     </div>
                 </div>
@@ -57,11 +60,11 @@
     </div>
 
     <!-- Error -->
-    <div id="searchError" class="alert alert-danger d-none"></div>
+    <div id="searchError" class="alert alert-danger d-none d-flex align-items-center gap-2"></div>
 
-    <!-- Search Results -->
+    <!-- Results -->
     <div id="searchResultsContainer" class="d-none">
-        <div class="d-flex align-items-center gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
             <h5 class="mb-0">Results for:</h5>
             <span class="badge bg-primary fs-6 fw-normal" id="queryDisplay"></span>
         </div>
@@ -80,58 +83,113 @@
             document.getElementById('queryError').classList.add('d-none');
 
             const contractId = document.getElementById('contractSelect').value || null;
+            const resultsContainer = document.getElementById('searchResultsContainer');
+            const resultsDiv = document.getElementById('searchResults');
+            const errorDiv = document.getElementById('searchError');
+
+            resultsDiv.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted py-3"><span class="spinner-border spinner-border-sm"></span> Searching…</div>';
+            resultsContainer.classList.remove('d-none');
+            errorDiv.classList.add('d-none');
 
             fetch('/analysis/search', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ contractId: contractId, query: query, topK: 5 })
             })
-            .then(resp => resp.json())
-            .then(data => {
+            .then(resp => {
                 if (!resp.ok) {
-                    document.getElementById('searchError').textContent = 'Error: ' + (data.message || resp.status);
-                    document.getElementById('searchError').classList.remove('d-none');
-                    return;
+                    return resp.json().then(data => {
+                        throw new Error(data.message || resp.status);
+                    });
                 }
-                document.getElementById('searchError').classList.add('d-none');
+                return resp.json();
+            })
+            .then(data => {
                 document.getElementById('queryDisplay').textContent = '"' + query + '"';
-                document.getElementById('searchResultsContainer').classList.remove('d-none');
 
                 if (!data.results || data.results.length === 0) {
-                    document.getElementById('searchResults').innerHTML =
-                        '<p class="text-muted">No matching chunks found. Try a different query.</p>';
+                    resultsDiv.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-search d-block mb-2 fs-2"></i><p class="mb-0">No matching content found. Try a different query.</p></div>';
                     return;
                 }
 
-                document.getElementById('searchResults').innerHTML = data.results.map((r, i) => `
-                    <div class="card mb-3">
-                        <div class="card-header d-flex justify-content-between">
-                            <span>
-                                <i class="bi bi-file-text me-1"></i>
-                                Match ${i + 1}
-                                — Chunk #${r.chunkIndex}
-                            </span>
-                            <span class="badge bg-success">
-                                Score: ${r.score.toFixed(3)}
-                            </span>
-                        </div>
-                        <div class="card-body">
-                            <p style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.6;">
-                                ${escapeHtml(r.text)}
-                            </p>
-                        </div>
-                    </div>`).join('');
+                const hasAnswer = data.answer && !data.answer.includes('AI service is disabled') && !data.answer.includes('Could not generate');
+
+                let html = '';
+
+                // ── Answer block ──────────────────────────────────────────
+                if (hasAnswer) {
+                    html += `
+                        <div class="card border-primary mb-3">
+                            <div class="card-header bg-primary text-white d-flex align-items-center gap-2 py-2">
+                                <i class="bi bi-chat-quote-fill"></i>
+                                <strong>Answer</strong>
+                                <small class="ms-auto opacity-75">AI-generated from ${data.results.length} source(s)</small>
+                            </div>
+                            <div class="card-body">
+                                <p class="mb-0" style="white-space:pre-wrap; line-height:1.7;">${escapeHtml(data.answer)}</p>
+                            </div>
+                        </div>`;
+                } else if (data.answer == null) {
+                    html += `
+                        <div class="alert alert-info py-2 small mb-3">
+                            <i class="bi bi-info-circle me-1"></i>
+                            AI answer synthesis is unavailable (AI service disabled).
+                            Showing term-matched chunks below.
+                        </div>`;
+                } else {
+                    // answer was returned but is a fallback message
+                    html += `
+                        <div class="alert alert-warning py-2 small mb-3">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            ${escapeHtml(data.answer)}
+                        </div>`;
+                }
+
+                // ── Source chunks (collapsible) ───────────────────────────
+                html += `
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <button class="btn btn-sm btn-outline-secondary" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#sourceChunks"
+                                aria-expanded="${hasAnswer ? 'false' : 'true'}">
+                            <i class="bi bi-${hasAnswer ? 'chevron-right' : 'chevron-down'} me-1"></i>
+                            ${data.results.length} Source Chunk(s)
+                        </button>
+                        <small class="text-muted">Click to ${hasAnswer ? 'show' : 'hide'}</small>
+                    </div>
+                    <div class="collapse ${hasAnswer ? '' : 'show'}" id="sourceChunks">
+                        ${data.results.map((r, i) => `
+                            <div class="card mb-2 search-result-card">
+                                <div class="card-header d-flex justify-content-between align-items-center py-1">
+                                    <span class="small fw-semibold">
+                                        <i class="bi bi-file-text me-1"></i>
+                                        Chunk #${r.chunkIndex}
+                                    </span>
+                                    <span class="badge bg-success">Score: ${r.score.toFixed(3)}</span>
+                                </div>
+                                <div class="card-body py-2">
+                                    <p class="mb-0 small" style="white-space:pre-wrap; line-height:1.6;">${escapeHtml(r.text)}</p>
+                                </div>
+                            </div>`).join('')}
+                    </div>`;
+
+                resultsDiv.innerHTML = html;
+
+                // Toggle chevron icon on collapse expand/collapse
+                const sourceBtn = document.querySelector('[data-bs-target="#sourceChunks"]');
+                if (sourceBtn) {
+                    document.getElementById('sourceChunks').addEventListener('show.bs.collapse', function () {
+                        sourceBtn.innerHTML = '<i class="bi bi-chevron-down me-1"></i> ' + data.results.length + ' Source Chunk(s)';
+                    });
+                    document.getElementById('sourceChunks').addEventListener('hide.bs.collapse', function () {
+                        sourceBtn.innerHTML = '<i class="bi bi-chevron-right me-1"></i> ' + data.results.length + ' Source Chunk(s)';
+                    });
+                }
             })
             .catch(e => {
-                document.getElementById('searchError').textContent = 'Search failed: ' + e.message;
-                document.getElementById('searchError').classList.remove('d-none');
+                errorDiv.innerHTML = '<i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i> <span>Search failed: ' + e.message + '</span>';
+                errorDiv.classList.remove('d-none');
+                resultsContainer.classList.add('d-none');
             });
-        }
-
-        function escapeHtml(text) {
-            const d = document.createElement('div');
-            d.textContent = text;
-            return d.innerHTML;
         }
 
         document.getElementById('queryInput').addEventListener('keydown', function(e) {

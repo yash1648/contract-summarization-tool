@@ -194,7 +194,53 @@ public class AiIntegrationService {
     }
 
     // ══════════════════════════════════════════════════════════
-    //  4. DELETE — DELETE /api/ai/contract/{id}
+    //  4. ASK — POST /api/ai/ask  (Q&A synthesis)
+    // ══════════════════════════════════════════════════════════
+
+    /**
+     * Synthesise a natural-language answer from the top-K relevant chunk texts.
+     *
+     * Python request:
+     *   { "contractId": "...", "query": "...", "chunks": ["chunk1", "chunk2", ...] }
+     *
+     * Python response:
+     *   { "answer": "...", "chunksUsed": 5 }
+     *
+     * @return the answer string, or null if AI is disabled.
+     */
+    public String askQuestion(String contractId, String query, List<String> chunkTexts) {
+        if (!aiServiceEnabled) {
+            log.warn("[AI DISABLED] askQuestion skipped for query='{}'", query);
+            return null;
+        }
+        if (chunkTexts == null || chunkTexts.isEmpty()) {
+            log.warn("[ask] No chunk texts provided for query='{}'", query);
+            return "No contract content available to answer the question.";
+        }
+
+        log.info("[ask] query='{}' contractId={} chunks={}", query, contractId, chunkTexts.size());
+
+        Map<String, Object> body = new HashMap<>();
+        if (contractId != null) body.put("contractId", contractId);
+        body.put("query", query);
+        body.put("chunks", chunkTexts);
+
+        try {
+            JsonNode response = callWithRetry("/api/ai/ask", body, "ask");
+            if (response != null && response.has("answer")) {
+                String answer = response.path("answer").asText("");
+                log.info("[ask] Got answer for query='{}' ({} chars)", query, answer.length());
+                return answer;
+            }
+        } catch (Exception e) {
+            log.warn("[ask] Failed to get answer for query='{}': {}", query, e.getMessage());
+        }
+
+        return "Could not generate an answer at this time.";
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  5. DELETE — DELETE /api/ai/contract/{id}
     // ══════════════════════════════════════════════════════════
 
     /**

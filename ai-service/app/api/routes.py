@@ -24,6 +24,7 @@ from app.core.llm_client import llm_client
 from app.core.vector_store import vector_store
 from app.config import settings
 from app.models.schemas import (
+    AskRequest, AskResponse,
     EmbedRequest, EmbedResponse,
     AnalyzeRequest, AnalyzeResponse,
     SearchRequest, SearchResponse,
@@ -242,6 +243,54 @@ async def semantic_search(request: SearchRequest) -> SearchResponse:
         )
     except Exception as e:
         logger.exception(f"search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return result
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  POST /api/ai/ask  —  Q&A: synthesise answer from chunks
+# ════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/ask",
+    response_model=AskResponse,
+    summary="Q&A — answer a question using contract excerpts",
+    description=(
+        "Takes the user's query plus the top-K relevant chunk texts, "
+        "sends them to the LLM for answer synthesis, and returns a "
+        "natural-language answer with the number of chunks used."
+    ),
+)
+async def ask_question(request: AskRequest) -> AskResponse:
+    """
+    Request body (from AiIntegrationService.askQuestion):
+        {
+          "contractId": "...",   ← optional
+          "query": "What are the payment terms?",
+          "chunks": ["chunk text 1", "chunk text 2", ...]
+        }
+
+    Response:
+        {
+          "answer": "The payment terms require...",
+          "chunksUsed": 5
+        }
+    """
+    logger.info(
+        f"POST /ask  query='{request.query}'  "
+        f"chunks={len(request.chunks)}"
+    )
+    if not request.chunks:
+        raise HTTPException(status_code=400, detail="chunks list is empty")
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            _executor, lambda: rag_pipeline.ask(request)
+        )
+    except Exception as e:
+        logger.exception(f"ask failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     return result

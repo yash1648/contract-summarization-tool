@@ -66,10 +66,12 @@ public class AnalysisController {
     }
 
     /**
-     * Semantic search endpoint — returns JSON.
+     * Semantic search endpoint — returns JSON with a synthesised answer + chunk citations.
      * Accepts a JSON body with { contractId, query, topK }.
      *
-     * TODO: Results are stubs when app.ai.service.enabled=false.
+     * Response shape:
+     *   { "query": "...", "answer": "AI answer...", "results": [...], "count": N }
+     *   When AI is disabled, answer is null and results contain term-matched chunks.
      */
     @PostMapping("/analysis/search")
     @ResponseBody
@@ -79,17 +81,13 @@ public class AnalysisController {
         log.info("Semantic search: contractId={}, query='{}', topK={}",
                 request.getContractId(), request.getQuery(), request.getTopK());
 
-        List<Map<String, Object>> results = analysisService.search(
+        Map<String, Object> result = analysisService.search(
                 request.getContractId(),
                 request.getQuery(),
                 request.getTopK()
         );
 
-        return ResponseEntity.ok(Map.of(
-                "query",   request.getQuery(),
-                "results", results,
-                "count",   results.size()
-        ));
+        return ResponseEntity.ok(result);
     }
 
     // ── Helper ───────────────────────────────────────────────

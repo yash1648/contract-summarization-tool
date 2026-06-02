@@ -121,6 +121,23 @@ SECTION SUMMARIES:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  QA_PROMPT — answer a user question based on contract excerpts
+# ════════════════════════════════════════════════════════════════════════════
+
+QA_PROMPT = """\
+You are a senior legal analyst. Answer the user's question based SOLELY on the contract excerpts provided below.
+
+If the excerpts do NOT contain enough information to answer the question, say "The provided contract excerpts do not specify this." Do NOT make up or infer information.
+
+CONTRACT EXCERPTS:
+{context}
+
+QUESTION: {query}
+
+Provide a clear, concise answer. If you reference specific clauses, sections, or terms from the excerpts, mention them. If the information is spread across multiple excerpts, synthesise it into a single coherent response."""
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  RISK_PROMPT — risk analysis only (JSON output)
 # ════════════════════════════════════════════════════════════════════════════
 

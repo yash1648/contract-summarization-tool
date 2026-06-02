@@ -108,6 +108,16 @@ class NVIDIANIMClient:
         raw = self._chat(prompt)
         return prompts.parse_risk_json(raw)
 
+    def generate_answer(self, query: str, context_chunks: list[str]) -> str:
+        """
+        Synthesise a concise answer to the user's query from the given chunks.
+        Used by the Q&A search endpoint.
+        """
+        context = prompts.format_context(context_chunks)
+        prompt = prompts.QA_PROMPT.format(context=context, query=query)
+        logger.info(f"Generating Q&A answer via NVIDIA NIM  query='{query}'  chunks={len(context_chunks)}")
+        return self._chat(prompt).strip()
+
     def generate_extraction(self, chunk_text: str) -> dict:
         """
         Extract structured fields from a single chunk using the extraction prompt.

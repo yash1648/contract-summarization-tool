@@ -24,6 +24,7 @@ from app.core.embedder import embedder
 from app.core.vector_store import vector_store
 from app.core.llm_client import llm_client
 from app.models.schemas import (
+    AskRequest, AskResponse,
     EmbedRequest, EmbedResponse,
     AnalyzeRequest, AnalyzeResponse,
     SearchRequest, SearchResponse, SearchResultItem,
@@ -490,6 +491,34 @@ class RagPipeline:
             results=results,
             query=request.query,
             count=len(results),
+        )
+
+    # ══════════════════════════════════════════════════════════
+    #  ASK  —  Q&A: synthesise answer from retrieved chunks
+    # ══════════════════════════════════════════════════════════
+
+    def ask(self, request: AskRequest) -> AskResponse:
+        """
+        Generate a natural-language answer to the user's query
+        using the provided chunk texts as context.
+        """
+        logger.info(
+            f"[ask] query='{request.query}'  "
+            f"chunks={len(request.chunks)}"
+        )
+
+        if not request.chunks:
+            return AskResponse(
+                answer="No contract content available to answer the question.",
+                chunksUsed=0,
+            )
+
+        answer = llm_client.generate_answer(request.query, request.chunks)
+
+        logger.info(f"[ask] answer generated  chars={len(answer)}")
+        return AskResponse(
+            answer=answer,
+            chunksUsed=len(request.chunks),
         )
 
     # ══════════════════════════════════════════════════════════

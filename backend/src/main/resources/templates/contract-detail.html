@@ -1,118 +1,93 @@
 <!DOCTYPE html>
-
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
       th:replace="~{layout :: layout('Contract Detail', ~{::content})}">
 <body>
 <th:block th:fragment="content">
 
-    <div class="d-flex align-items-center mb-4 gap-3">
+    <div class="page-heading">
         <a th:href="@{/contracts}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left"></i>
         </a>
-        <div>
-            <h2 class="fw-bold mb-0 text-white">
-                <i class="bi bi-file-earmark-text me-2" style="color:var(--accent);"></i>
-                <span th:text="${contract.fileName}">contract.pdf</span>
+        <div class="flex-grow-1 min-width-0">
+            <h2 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                <i class="bi bi-file-earmark-text" style="color:var(--accent);"></i>
+                <span th:text="${contract.fileName}" class="text-truncate">contract.pdf</span>
+                <span class="status-pill ms-2"
+                      th:classappend="'status-' + ${contract.status.name()}"
+                      th:text="${contract.status.name().replace('_', ' ')}">UPLOADED</span>
             </h2>
             <small class="text-muted">Contract ID: <code th:text="${contract.id}">-</code></small>
         </div>
-        <span class="status-pill ms-auto"
-              th:classappend="'status-' + ${contract.status.name()}"
-              th:text="${contract.status.name().replace('_', ' ')}">UPLOADED</span>
+        <form th:if="${contract.status != T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
+              th:action="@{/analysis/{contractId}/run(contractId=${contract.id})}" method="post" class="flex-shrink-0">
+            <button type="submit" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-cpu me-1"></i> Run Analysis
+            </button>
+        </form>
+        <a th:if="${contract.status == T(com.grim.backend.model.Contract.ProcessingStatus).COMPLETED}"
+           th:href="@{/analysis/{contractId}/results(contractId=${contract.id})}" class="btn btn-outline-primary btn-sm flex-shrink-0">
+            <i class="bi bi-eye me-1"></i> View Results
+        </a>
     </div>
 
     <!-- Metadata Cards -->
     <div class="row g-3 mb-4">
-
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <div class="text-muted small">File Type</div>
-                    <div class="fw-bold">
-                        <i class="bi bi-file-earmark-pdf text-danger me-1"
-                           th:if="${contract.fileType.contains('pdf')}"></i>
-                        <i class="bi bi-file-earmark-word text-primary me-1"
-                           th:unless="${contract.fileType.contains('pdf')}"></i>
-                        <span th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
-                    </div>
+        <div class="col-md-3 col-6">
+            <div class="stat-card text-center" style="padding:1rem;">
+                <div class="stat-label">File Type</div>
+                <div class="fw-bold fs-5 mt-1">
+                    <i class="bi me-1"
+                       th:classappend="${contract.fileType.contains('pdf')} ? 'bi-file-earmark-pdf text-danger' : 'bi-file-earmark-word text-primary'"></i>
+                    <span th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
                 </div>
             </div>
         </div>
-
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <div class="text-muted small">File Size</div>
-                    <div class="fw-bold"
-                         th:text="${#numbers.formatDecimal(contract.fileSize / 1024.0 / 1024.0, 1, 2) + ' MB'}">0 MB</div>
-                </div>
+        <div class="col-md-3 col-6">
+            <div class="stat-card text-center" style="padding:1rem;">
+                <div class="stat-label">File Size</div>
+                <div class="fw-bold fs-5 mt-1"
+                     th:text="${#numbers.formatDecimal(contract.fileSize / 1024.0 / 1024.0, 1, 2) + ' MB'}">0 MB</div>
             </div>
         </div>
-
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <div class="text-muted small">Total Chunks</div>
-                    <div class="fw-bold" th:text="${contract.totalChunks}">0</div>
-
-                    <th:block th:if="${contract.chunks != null}">
-                        <div class="text-muted" style="font-size:.7rem;"
-                             th:with="embedded=${embeddedCount}">
-                            <span th:text="${embedded} + ' embedded'">0 embedded</span>
-                            <span th:if="${contract.totalChunks > embedded}">
-                            (<span th:text="${contract.totalChunks - embedded}">0</span> to go)
-                        </span>
-                        </div>
-                    </th:block>
-
-                </div>
+        <div class="col-md-3 col-6">
+            <div class="stat-card text-center" style="padding:1rem;">
+                <div class="stat-label">Total Chunks</div>
+                <div class="fw-bold fs-5 mt-1" th:text="${contract.totalChunks}">0</div>
             </div>
         </div>
-
-        <div class="col-md-3">
-            <div class="card text-center">
-                <div class="card-body">
-                    <div class="text-muted small">Uploaded</div>
-                    <div class="fw-bold small"
-                         th:text="${#temporals.format(contract.createdAt, 'dd MMM yyyy HH:mm')}">-</div>
-                </div>
+        <div class="col-md-3 col-6">
+            <div class="stat-card text-center" style="padding:1rem;">
+                <div class="stat-label">Uploaded</div>
+                <div class="fw-bold fs-6 mt-1" th:text="${#temporals.format(contract.createdAt, 'dd MMM yyyy HH:mm')}">-</div>
             </div>
         </div>
-
     </div>
 
     <!-- Embedding Progress -->
     <th:block th:if="${contract.chunks != null}">
         <div class="card shadow-sm mb-4">
-            <div class="card-header fw-semibold d-flex justify-content-between">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-grid-3x3-gap me-2"></i>Embedding Status (FAISS)</span>
-                <span class="text-muted small"
-                      th:with="embedded=${embeddedCount}">
-            <span th:text="${embedded} + ' / ' + ${contract.totalChunks}">0 / 0</span> chunks embedded
-        </span>
+                <span class="text-muted small" th:with="embedded=${embeddedCount}">
+                    <span th:text="${embedded} + ' / ' + ${contract.totalChunks}">0 / 0</span> chunks embedded
+                </span>
             </div>
-
-            <div class="card-body pb-2">
-                <div th:with="embedded=${embeddedCount},
-                      pct=${contract.totalChunks > 0 ? (embedded * 100 / contract.totalChunks) : 0}">
-
+            <div class="card-body">
+                <div th:with="embedded=${embeddedCount}, pct=${contract.totalChunks > 0 ? (embedded * 100 / contract.totalChunks) : 0}">
                     <div class="progress mb-2" style="height:10px;">
-                        <div class="progress-bar bg-success"
+                        <div class="progress-bar bg-success" role="progressbar"
                              th:style="'width:' + ${pct} + '%'"
-                             th:attr="aria-valuenow=${pct}">
-                        </div>
+                             th:attr="aria-valuenow=${pct}"></div>
                     </div>
-
                     <div class="d-flex justify-content-between small text-muted">
-                <span th:if="${pct == 100}" class="text-success fw-semibold">
-                    <i class="bi bi-check-circle-fill me-1"></i>All chunks embedded in FAISS
-                </span>
+                        <span th:if="${pct == 100}" class="text-success fw-semibold">
+                            <i class="bi bi-check-circle-fill me-1"></i> All chunks embedded in FAISS
+                        </span>
                         <span th:unless="${pct == 100}">
-                    Run analysis to embed remaining chunks.
-                </span>
+                            <i class="bi bi-hourglass me-1"></i> Run analysis to embed remaining chunks.
+                        </span>
                         <span th:text="${pct} + '%'">0%</span>
                     </div>
-
                 </div>
             </div>
         </div>
@@ -121,54 +96,98 @@
     <!-- Chunk Preview -->
     <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span class="fw-semibold"><i class="bi bi-scissors me-2"></i>Text Chunk Preview</span>
-            <span class="text-muted small"
-                  th:if="${contract.chunks != null}">
-            Showing 3 of <span th:text="${contract.totalChunks}">0</span> chunks
-        </span>
+            <span><i class="bi bi-scissors me-2"></i>Text Chunk Preview</span>
+            <span class="text-muted small" th:if="${contract.chunks != null}">
+                Showing 3 of <span th:text="${contract.totalChunks}">0</span> chunks
+            </span>
         </div>
-
         <div class="card-body">
-
             <th:block th:if="${contract.chunks == null or contract.chunks.empty}">
-                <div class="text-muted">No chunks available yet.</div>
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-file-earmark-x d-block mb-2 fs-2"></i>
+                    No chunks available yet.
+                </div>
             </th:block>
 
             <th:block th:if="${contract.chunks != null}">
                 <div th:each="chunk, iterStat : ${contract.chunks}"
                      th:if="${iterStat.index < 3}"
                      class="mb-3">
-
                     <div class="d-flex align-items-center mb-1 gap-2 flex-wrap">
-                    <span class="badge bg-primary">
-                        Chunk #<span th:text="${chunk.index}">0</span>
-                    </span>
-
-                        <span class="text-muted small"
-                              th:text="${chunk.text.length()} + ' chars | offset ' + ${chunk.startOffset} + '–' + ${chunk.endOffset}">
-                    </span>
-
+                        <span class="badge bg-primary">Chunk #<span th:text="${chunk.index}">0</span></span>
+                        <span class="text-muted small" th:text="${chunk.text.length()} + ' chars | offset ' + ${chunk.startOffset} + '–' + ${chunk.endOffset}"></span>
                         <span th:if="${chunk.isEmbedded()}" class="badge bg-success ms-auto">
-                        <i class="bi bi-check2 me-1"></i>Embedded
-                        <span class="ms-1 opacity-75" style="font-size:.7rem;"
-                              th:text="${#strings.abbreviate(chunk.embeddingId, 12)}"></span>
-                    </span>
-
+                            <i class="bi bi-check2 me-1"></i>Embedded
+                            <span class="ms-1 opacity-75" style="font-size:.7rem;" th:text="${#strings.abbreviate(chunk.embeddingId, 12)}"></span>
+                        </span>
                         <span th:unless="${chunk.isEmbedded()}" class="badge bg-warning text-dark ms-auto">
-                        <i class="bi bi-hourglass me-1"></i>Pending Embed
-                    </span>
+                            <i class="bi bi-hourglass me-1"></i>Pending Embed
+                        </span>
                     </div>
-
-                    <div class="chunk-preview"
-                         th:text="${#strings.abbreviate(chunk.text, 500)}">chunk text…</div>
-
+                    <div class="chunk-preview" th:text="${#strings.abbreviate(chunk.text, 500)}">chunk text…</div>
                 </div>
             </th:block>
-
         </div>
     </div>
 
-</th:block>
+    <script th:inline="javascript">
+        // ── Contract status polling for async completion notification ──
+        (function() {
+            var contractId = '[[${contract.id}]]';
+            var currentStatus = '[[${contract.status.name()}]]';
+            var POLL_MS = 3000;          // check every 3 seconds
+            var MAX_POLL_MS = 120000;    // stop after 2 minutes
+            var startTime = Date.now();
 
+            // Statuses that indicate processing in progress
+            var processingStatuses = {
+                UPLOADED: true, EXTRACTING: true, CHUNKING: true,
+                PENDING_AI: true, ANALYZING: true
+            };
+            if (!processingStatuses[currentStatus]) return;
+
+            function poll() {
+                if (Date.now() - startTime > MAX_POLL_MS) return;
+
+                fetch('/api/contracts/' + contractId + '/status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        var newStatus = data.status;
+                        if (newStatus === currentStatus) {
+                            // No change — poll again
+                            setTimeout(poll, POLL_MS);
+                            return;
+                        }
+                        // Status changed
+                        if (newStatus === 'COMPLETED') {
+                            window.showToast(
+                                '✓ Analysis complete for ' + (data.fileName || 'this contract') + '!',
+                                'success'
+                            );
+                            setTimeout(function() { window.location.reload(); }, 3000);
+                        } else if (newStatus === 'FAILED') {
+                            window.showToast(
+                                '✗ Analysis failed for ' + (data.fileName || 'this contract') + '. Please try again.',
+                                'error'
+                            );
+                            setTimeout(function() { window.location.reload(); }, 3000);
+                        } else {
+                            // Intermediate status change — keep polling
+                            currentStatus = newStatus;
+                            setTimeout(poll, POLL_MS);
+                        }
+                    })
+                    .catch(function() {
+                        // Network error — retry
+                        setTimeout(poll, POLL_MS);
+                    });
+            }
+
+            // Start polling after initial delay
+            setTimeout(poll, POLL_MS);
+        })();
+    </script>
+
+</th:block>
 </body>
 </html>

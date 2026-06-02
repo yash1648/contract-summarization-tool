@@ -9,8 +9,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.ResponseBody;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 
@@ -60,6 +62,24 @@ public class DashboardController {
     public String searchPage(Model model) {
         model.addAttribute("contracts", contractService.getAllContracts());
         return "search";
+    }
+
+    /**
+     * JSON contract status endpoint — used by frontend polling for async completion.
+     *
+     *   GET /api/contracts/{id}/status
+     *   → { id, status, analysisResultId }
+     */
+    @GetMapping("/api/contracts/{id}/status")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> contractStatus(@PathVariable String id) {
+        Contract c = contractService.getById(id);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", c.getId());
+        result.put("status", c.getStatus().name());
+        result.put("analysisResultId", c.getAnalysisResultId());
+        result.put("fileName", c.getFileName());
+        return ResponseEntity.ok(result);
     }
 
     /**

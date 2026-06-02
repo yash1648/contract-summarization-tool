@@ -54,6 +54,21 @@ class AnalyzeResponse(BaseModel):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  POST /api/ai/ask  —  Q&A: synthesize answer from chunks
+# ════════════════════════════════════════════════════════════════════════════
+
+class AskRequest(BaseModel):
+    contractId: Optional[str] = None
+    query: str
+    chunks: list[str] = Field(..., description="Top-K relevant chunk texts as context")
+
+
+class AskResponse(BaseModel):
+    answer: str
+    chunksUsed: int
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  POST /api/ai/search
 # ════════════════════════════════════════════════════════════════════════════
 
