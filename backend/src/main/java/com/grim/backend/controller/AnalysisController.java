@@ -3,6 +3,7 @@ package com.grim.backend.controller;
 import com.grim.backend.dto.AnalysisResponseDto;
 import com.grim.backend.dto.SearchRequestDto;
 import com.grim.backend.service.AnalysisService;
+import com.grim.backend.service.ContractService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +13,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -30,6 +32,7 @@ import java.util.Map;
 public class AnalysisController {
 
     private final AnalysisService analysisService;
+    private final ContractService  contractService;
 
     /** Trigger analysis for a given contract (redirects to results) */
     @PostMapping("/analysis/{contractId}/run")
@@ -88,6 +91,20 @@ public class AnalysisController {
         );
 
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Polling endpoint for frontend toast notifications.
+     * Returns contracts whose analysis COMPLETED or FAILED in the last
+     * 60 seconds.  The frontend calls this every 5 s and deduplicates
+     * by contractId so the user gets a toast without manual reload.
+     */
+    @GetMapping("/api/analysis/updates")
+    @ResponseBody
+    public ResponseEntity<List<Map<String, Object>>> getUpdates() {
+        LocalDateTime since = LocalDateTime.now().minusSeconds(60);
+        List<Map<String, Object>> updates = contractService.getRecentUpdates(since);
+        return ResponseEntity.ok(updates);
     }
 
     // ── Helper ───────────────────────────────────────────────

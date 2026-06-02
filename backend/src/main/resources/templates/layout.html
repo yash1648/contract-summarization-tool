@@ -669,6 +669,66 @@
                 return d.innerHTML;
             };
 
+            // ── Poll for background analysis completions ──────────
+            var notifiedContracts = new Set();
+            function pollAnalysisUpdates() {
+                fetch('/api/analysis/updates')
+                    .then(function(r) { return r.json(); })
+                    .then(function(updates) {
+                        updates.forEach(function(u) {
+                            if (notifiedContracts.has(u.contractId)) return;
+                            notifiedContracts.add(u.contractId);
+
+                            var link = '/analysis/' + u.contractId + '/results';
+                            var escaped = window.escapeHtml(u.fileName);
+                            if (u.status === 'COMPLETED') {
+                                window.showToast(
+                                    '✓ Analysis complete for ' + escaped,
+                                    'success', 12000
+                                );
+                                // Also inject a clickable link after the toast container
+                                var container = document.getElementById('toastContainer');
+                                var linkToast = document.createElement('div');
+                                linkToast.className = 'toast-notification toast-info';
+                                linkToast.style.cursor = 'pointer';
+                                linkToast.innerHTML =
+                                    '<i class="bi bi-eye flex-shrink-0"></i>' +
+                                    '<span><a href="' + link + '" style="color:inherit;text-decoration:underline;">' +
+                                    'View results for ' + escaped + '</a></span>' +
+                                    '<button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
+                                linkToast.addEventListener('click', function(e) {
+                                    if (e.target.tagName !== 'A' && e.target.tagName !== 'BUTTON') {
+                                        window.location.href = link;
+                                    }
+                                });
+                                container.appendChild(linkToast);
+                                setTimeout(function() {
+                                    if (linkToast.parentElement) {
+                                        linkToast.style.transition = 'opacity 0.3s, transform 0.3s';
+                                        linkToast.style.opacity = '0';
+                                        linkToast.style.transform = 'translateX(40px)';
+                                        setTimeout(function() { linkToast.remove(); }, 300);
+                                    }
+                                }, 20000);
+                            } else if (u.status === 'FAILED') {
+                                window.showToast(
+                                    '✗ Analysis failed for ' + escaped,
+                                    'error', 15000
+                                );
+                            }
+                        });
+                    })
+                    .catch(function(e) {
+                        // Silently ignore — server might not be fully up yet
+                    });
+            }
+            // Start polling after page load, every 5 seconds
+            if (window.location.pathname !== '/analysis/search') {
+                // No polling on the search page (not relevant there)
+                setTimeout(pollAnalysisUpdates, 3000);  // first check after 3s
+                setInterval(pollAnalysisUpdates, 5000); // then every 5s
+            }
+
             // ── Show dynamic toast notification ────────────────────
             window.showToast = function(message, type, duration) {
                 type = type || 'info';    // 'success' | 'error' | 'info'

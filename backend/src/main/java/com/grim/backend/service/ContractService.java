@@ -19,9 +19,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Core service orchestrating the contract upload pipeline:
@@ -168,6 +170,26 @@ public class ContractService {
         log.error("Contract {} FAILED: {}", contract.getId(), reason);
         contract.setStatus(Contract.ProcessingStatus.FAILED);
         contractRepository.save(contract);
+    }
+
+    // ── Polling for frontend notifications ────────────────────
+
+    /** Returns contracts that reached COMPLETED or FAILED after the given timestamp.
+     *  Used by the frontend polling endpoint to show toast notifications
+     *  when background analysis finishes. */
+    public List<Map<String, Object>> getRecentUpdates(LocalDateTime since) {
+        return contractRepository.findCompletedOrFailedSince(since)
+                .stream()
+                .map(c -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("contractId", c.getId());
+                    m.put("fileName", c.getFileName());
+                    m.put("status", c.getStatus().name());
+                    m.put("processedAt", c.getProcessedAt() != null
+                            ? c.getProcessedAt().toString() : null);
+                    return m;
+                })
+                .collect(Collectors.toList());
     }
 
     // ── Stats ────────────────────────────────────────────────

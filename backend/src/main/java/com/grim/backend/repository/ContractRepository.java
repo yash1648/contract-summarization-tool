@@ -5,6 +5,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,6 +39,11 @@ public interface ContractRepository extends MongoRepository<Contract, String> {
     /** Contracts that completed analysis (have a linked analysis result) */
     @Query("{ 'analysisResultId': { $ne: null }, 'status': 'COMPLETED' }")
     List<Contract> findCompletedContracts();
+
+    /** Contracts that reached terminal status (COMPLETED/FAILED) after a given timestamp.
+     *  Used by the frontend polling mechanism to toast notifications. */
+    @Query("{ 'status': { $in: ['COMPLETED', 'FAILED'] }, 'processedAt': { $gt: ?0 } }")
+    List<Contract> findCompletedOrFailedSince(LocalDateTime since);
 
     /** Count by status — used on the dashboard */
     long countByStatus(Contract.ProcessingStatus status);
