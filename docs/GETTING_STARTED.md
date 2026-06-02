@@ -1,18 +1,20 @@
 # Getting Started Guide
 
-## 🚀 Quick Start
+## Quick Start
 
 This guide will help you set up and run the AI Contract Summarization System locally.
 
-## 📋 Prerequisites
+## Prerequisites
 
 - Java 21 or later
 - Maven 3.8+
 - Python 3.11+
 - Docker (optional, for MongoDB)
-- Ollama (for local LLM)
+- Ollama (for local LLM fallback) **or** NVIDIA API key (for cloud inference)
 
-## 🏗️ Backend Setup
+---
+
+## Backend Setup
 
 ### 1. Install Dependencies
 ```bash
@@ -21,12 +23,7 @@ mvn dependency:resolve
 ```
 
 ### 2. Configure Application
-Copy the example configuration:
-```bash
-cp src/main/resources/application.yaml.example src/main/resources/application.yaml
-```
-
-Edit `application.yaml` to configure:
+Edit `backend/src/main/resources/application.yaml` to configure:
 - MongoDB connection (or use Docker)
 - File upload directory
 - AI service settings
@@ -36,10 +33,7 @@ Edit `application.yaml` to configure:
 docker-compose up -d
 ```
 
-Or start MongoDB manually:
-```bash
-mongod --auth --port 27017
-```
+Or start MongoDB manually with authentication.
 
 ### 4. Build the Project
 ```bash
@@ -53,7 +47,9 @@ mvn spring-boot:run
 
 The backend will start on `http://localhost:6969`
 
-## 🤖 Python AI Service Setup
+---
+
+## Python AI Service Setup
 
 ### 1. Create Virtual Environment
 ```bash
@@ -68,124 +64,207 @@ pip install -r requirements.txt
 ```
 
 ### 3. Configure AI Service
-Copy the example environment file:
-```bash
-cp .env.example .env
+Create a `.env` file in `ai-service/` with the following:
+
+```env
+# LLM — Primary (NVIDIA NIM cloud inference)
+NVIDIA_API_KEY=nvapi-your-key-here
+NVIDIA_MODEL=meta/llama-3.3-70b-instruct
+
+# LLM — Fallback (local Ollama)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3
+
+# Embedding
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+# RAG
+RAG_TOP_K=7
+RAG_MIN_SCORE=0.20
 ```
 
-Edit `.env` to configure:
-- Ollama connection settings
-- Embedding model (default: `all-MiniLM-L6-v2`)
-- RAG parameters
+At least one LLM provider must be configured:
+- **NVIDIA NIM** (recommended): Set `NVIDIA_API_KEY` for zero-setup cloud inference
+- **Ollama** (offline fallback): Install Ollama and pull a model
 
-### 4. Install Ollama
-Follow instructions at https://ollama.ai/download
-
-### 5. Download Required Models
+### 4. Install Ollama (for local LLM fallback)
+Follow instructions at https://ollama.ai/download, then:
 ```bash
-ollama pull gemma3:4b
-ollama pull all-MiniLM-L6-v2
+ollama pull llama3
 ```
 
-### 6. Start the AI Service
+### 5. Start the AI Service
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 5000
+uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
 The AI service will be available at `http://localhost:5000`
 
-## 🧪 Testing
+---
+
+## Testing
 
 ### Backend Tests
 ```bash
 mvn test
 ```
 
-### API Tests
+### Python Tests
 ```bash
-pytest tests/
+cd ai-service && pytest tests/
 ```
 
-### Test API Endpoints
+### Verify Setup
 
-**Health Check:**
+**Health Check (Backend):**
 ```bash
-curl http://localhost:6969/api/ai/health
+curl http://localhost:6969/health
 ```
 
-**Upload Test File:**
+**Health Check (AI Service):**
 ```bash
-curl -X POST http://localhost:6969/upload \
-  -F "file=@test-document.pdf" \
-  -F "name=test"
+curl http://localhost:6969/api/health
 ```
 
-## 📁 Project Structure
+**Upload a Sample:**
+```bash
+curl -X POST http://localhost:6969/contracts/upload \
+  -F "file=@contract_sample/real_estate_contract.docx"
+```
+
+---
+
+## Project Structure
 
 ```
 ai-contract-system/
 ├── backend/                    # Spring Boot application
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/          # Java source code
-│   │   │   └── resources/     # Configuration & templates
-│   │   └── test/              # Unit tests
-│   └── mvnw                   # Maven wrapper
-├── ai-service/                # Python AI service
+│   ├── src/main/java/com/grim/backend/
+│   │   ├── config/             # WebClient configuration
+│   │   ├── controller/         # REST controllers
+│   │   ├── service/            # Business services
+│   │   ├── model/              # MongoDB entities
+│   │   ├── dto/                # Data transfer objects
+│   │   ├── repository/         # MongoDB repositories
+│   │   ├── exception/          # Custom exceptions
+│   │   └── BackendApplication.java
+│   ├── src/main/resources/
+│   │   ├── application.yaml    # Main config
+│   │   └── templates/          # Thymeleaf pages
+│   └── pom.xml
+├── ai-service/                 # Python AI service
 │   ├── app/
-│   │   ├── core/              # Core services (embedder, vector_store, ollama_client)
-│   │   ├── api/               # FastAPI routes
-│   │   └── models/            # Pydantic schemas
-│   ├── tests/                 # Python tests
-│   └── .env                   # Environment variables
-├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── API_REFERENCE.md
-│   └── GETTING_STARTED.md
-└── docker-compose.yml         # Docker services
+│   │   ├── api/routes.py       # FastAPI routes
+│   │   ├── core/               # RAG pipeline, LLM clients, embedder, vector store, prompts
+│   │   ├── models/schemas.py   # Pydantic models
+│   │   └── config.py           # Configuration (pydantic-settings)
+│   ├── main.py                 # FastAPI entry point
+│   ├── tests/                  # Python tests
+│   └── requirements.txt
+├── docs/                       # Documentation
+├── contract_sample/            # Sample contracts
+├── docker-compose.yml          # MongoDB only
+└── .opencode/                  # OpenCode CLI config + graphify plugin
 ```
 
-## 🐳 Docker Deployment
+---
 
-### Start All Services
+## Docker Deployment
+
+### Start MongoDB
 ```bash
 docker-compose up -d
 ```
 
-This will start:
-- MongoDB database
-- Backend application (port 6969)
-- AI service (port 5000)
+This starts MongoDB 6.0 on port 27017 with the default credentials.
 
 ### Stop Services
 ```bash
 docker-compose down
 ```
 
-## 🔧 Configuration
+Note: The backend and AI service run natively (not in Docker).
+
+---
+
+## Configuration
 
 ### File Upload Settings
 - Maximum file size: 20MB
-- Supported formats: PDF, DOCX, DOC
-- Upload directory: `./uploads` (relative to backend root)
+- Supported formats: PDF, DOCX
+- Upload directory: `./uploads` (relative to project root)
+- Magic-byte validation prevents extension spoofing
 
 ### Chunking Settings
-- Chunk size: 2500 characters
-- Overlap: 100 characters
-- Adjust in `application.yaml`
+- Chunk size: 2500 characters (configurable)
+- Overlap: 100 characters (configurable)
+- Configure in `application.yaml`
 
-### AI Service Settings
-- Embedding model: `all-MiniLM-L6-v2`
-- LLM model: `gemma3:4b` (via Ollama)
-- Timeout: 1200 seconds (20 minutes)
-- Max retries: 2
+### LLM Provider Settings
 
-## 🚨 Troubleshooting
+**NVIDIA NIM (Primary):**
+```env
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_MODEL=meta/llama-3.3-70b-instruct
+NVIDIA_TIMEOUT=60
+```
 
-### AI Service Not Reachable
-- Ensure Ollama is running: `ollama serve`
-- Check model is downloaded: `ollama list`
-- Verify port 5000 is available
+**Ollama (Fallback):**
+```env
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3
+OLLAMA_MAX_TOKENS=1024
+OLLAMA_TEMPERATURE=0.1
+```
+
+### RAG Settings
+```env
+RAG_TOP_K=7          # Number of chunks to retrieve
+RAG_MIN_SCORE=0.20   # Minimum similarity threshold
+```
+
+---
+
+## Quick API Reference
+
+### Upload & Analyze
+```bash
+# Upload
+curl -X POST http://localhost:6969/contracts/upload \
+  -F "file=@contract.pdf"
+
+# View contract (get the ID from the redirect URL)
+curl http://localhost:6969/contracts/{id}
+
+# Analysis auto-triggers on upload; check status:
+curl http://localhost:6969/api/contracts/{id}/status
+```
+
+### Search
+```bash
+curl -X POST http://localhost:6969/analysis/search \
+  -H "Content-Type: application/json" \
+  -d '{"contractId": "...", "query": "termination clauses", "topK": 5}'
+```
+
+---
+
+## Troubleshooting
+
+### "Connection refused" on AI endpoints
+- Ensure the Python service is running: `uvicorn main:app --host 0.0.0.0 --port 5000`
+- Check `.env` is properly configured
+- Verify port 5000 is not in use: `lsof -ti:5000`
+
+### "No LLM provider reachable"
+- Either set `NVIDIA_API_KEY` in `.env` or start Ollama: `ollama serve`
+- Verify model is pulled: `ollama list`
+- Check `NVIDIA_BASE_URL` if using a custom endpoint
+
+### "Model not found" from Ollama
+```bash
+ollama pull llama3
+```
 
 ### MongoDB Connection Failed
 - Check Docker: `docker ps`
@@ -195,28 +274,25 @@ docker-compose down
 ### File Upload Failures
 - Check file size (max 20MB)
 - Verify file format is PDF or DOCX
-- Ensure upload directory exists and is writable
+- Ensure upload directory exists: `./uploads/`
+- Check magic-byte validation isn't rejecting a valid file
 
 ### Empty Analysis Results
-- Enable AI service: Set `app.ai.service.enabled=true`
+- Enable AI service: Set `app.ai.service.enabled=true` in `application.yaml`
 - Check Python logs for errors
-- Verify Ollama model is loaded
+- Verify LLM provider is reachable
+- Try a contract with sufficient text content
 
-## 📊 Monitoring
-
-### Health Endpoint
+### Health Check Endpoints
 ```bash
-curl http://localhost:6969/api/ai/health
+# Backend status
+curl http://localhost:6969/api/health
+
+# AI service detailed status (from Python)
+curl http://localhost:5000/api/ai/health
 ```
 
-Returns status of:
-- Embedding model availability
-- Ollama connectivity
-- FAISS index count
-
 ### Logs
-Backend logs provide detailed information:
-- Upload progress
-- Chunking operations
-- AI service communication
-- Error details
+- Backend logs: Spring Boot console output (level controlled by `application.yaml`)
+- Python logs: `LOG_LEVEL=DEBUG` in `.env` for verbose output
+- Health endpoint shows real-time AI service connectivity

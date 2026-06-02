@@ -1,90 +1,207 @@
 # AI Contract System - API Reference
 
-## 📡 HTTP API Endpoints
+## Backend API (Spring Boot — port 6969)
 
-### Backend API (Spring Boot)
+### Dashboard
 
-#### File Upload
+#### Home / Dashboard
 ```
-POST /upload
+GET /
+  → Redirects to /dashboard
+
+GET /dashboard
+  Response (200 OK): Thymeleaf HTML page with:
+    - totalContracts, completedContracts, pendingContracts, failedContracts
+    - highRiskContracts
+    - recentContracts (last 5)
+    - recentAnalyses (last 5)
+    - aiStatus (live AI health, cached 30s)
+```
+
+### Contract Upload & Management
+
+#### Upload a Contract
+```
+POST /contracts/upload
 Content-Type: multipart/form-data
 
 Request:
   - file: Contract file (PDF/DOCX, max 20MB)
 
-Response (200 OK):
-{
-  "contractId": "string",
-  "fileName": "string",
-  "fileType": "string",
-  "fileSizeBytes": long,
-  "totalChunks": int,
-  "status": "UPLOADED|PROCESSING|COMPLETED|FAILED",
-  "uploadedAt": "datetime",
-  "message": "string"
-}
+Response: Redirect to /contracts/{id} on success
 
-Error Response (400/500):
-{
-  "error": "string",
-  "message": "string"
-}
+Notes:
+  - Validates file type + magic bytes (PDF/DOCX signatures)
+  - Auto-triggers async analysis on a background thread pool
 ```
 
-#### Get Contracts
+#### List Contracts
 ```
 GET /contracts
 
-Response (200 OK):
-[
-  {
-    "id": "string",
-    "fileName": "string",
-    "fileType": "string",
-    "fileSizeBytes": long,
-    "status": "string",
-    "uploadedAt": "datetime",
-    "processedAt": "datetime"
-  }
-]
+Response (200 OK): Thymeleaf HTML page
+  Backing endpoint returns: List of Contract objects
+  - id, fileName, fileType, fileSize, status, uploadedAt, etc.
 ```
 
-#### Get Contract Details
+#### Contract Detail
 ```
 GET /contracts/{id}
 
-Response (200 OK):
-{
-  "id": "string",
-  "fileName": "string",
-  "fileType": "string",
-  "fileSizeBytes": long,
-  "status": "string",
-  "extractedText": "string",
-  "totalChunks": int,
-  "chunks": [...],
-  "createdAt": "datetime",
-  "updatedAt": "datetime"
-}
+Response (200 OK): Thymeleaf HTML page
+  - Full contract details with chunk list and embedding status
 ```
 
 #### Delete Contract
 ```
-DELETE /contracts/{id}
+POST /contracts/{id}/delete
+
+Response: Redirect to /contracts
+  - Removes from MongoDB + deletes FAISS vectors + removes file from disk
+```
+
+### Analysis
+
+#### Trigger Analysis
+```
+POST /analysis/{contractId}/run
+
+Response: Redirect to /analysis/{contractId}/results
+
+Notes:
+  - Runs full RAG pipeline: FAISS retrieval → LLM summarization → risk extraction
+  - Overwrites any previous analysis result
+  - Contract status transitions: PENDING_AI → ANALYZING → COMPLETED / FAILED
+```
+
+#### View Analysis Results
+```
+GET /analysis/{contractId}/results
+
+Response (200 OK): Thymeleaf HTML page
+  - Summary, risk score, risk level badge, penalty clauses,
+    termination risks, liability issues, other flags
+```
+
+#### List All Analyses
+```
+GET /analysis
+
+Response (200 OK): Thymeleaf HTML page
+  - All analysis results sorted by analyzedAt descending
+```
+
+#### Semantic Search
+```
+POST /analysis/search
+Content-Type: application/json
+
+Request:
+{
+  "contractId": "string",     // optional — null = search all
+  "query": "termination clauses",
+  "topK": 5
+}
 
 Response (200 OK):
 {
-  "id": "string",
-  "deleted": true,
-  "vectorsRemoved": int
+  "query": "termination clauses",
+  "answer": "AI-synthesised answer...",    // null if AI disabled
+  "results": [
+    {
+      "chunkIndex": 2,
+      "text": "chunk text...",
+      "score": 0.91,
+      "contractId": "..."
+    }
+  ],
+  "count": 5
+}
+
+Notes:
+  - Uses FAISS semantic search (AI) with local term-matching fallback
+  - Answer synthesised via POST /api/ai/ask when AI is available
+```
+
+#### Analysis Polling (Frontend Toasts)
+```
+GET /api/analysis/updates
+
+Response (200 OK):
+[
+  {
+    "contractId": "...",
+    "fileName": "...",
+    "status": "COMPLETED|FAILED",
+    "processedAt": "2026-06-02T12:00:00"
+  }
+]
+
+Notes:
+  - Returns contracts that completed/failed in the last 60 seconds
+  - Called by frontend every 5s for toast notifications
+```
+
+### Contract Status Polling
+
+#### Contract Status
+```
+GET /api/contracts/{id}/status
+
+Response (200 OK):
+{
+  "id": "...",
+  "status": "UPLOADED|EXTRACTING|CHUNKING|PENDING_AI|ANALYZING|COMPLETED|FAILED",
+  "analysisResultId": "..." | null,
+  "fileName": "..."
 }
 ```
 
-### Python AI Service API
+### Health
 
-The Python AI service exposes REST endpoints that the Spring Boot backend calls:
+#### Simple Health Check
+```
+GET /health
 
-#### Embed Chunks
+Response (200 OK): "OK"
+```
+
+#### JSON Health Endpoint
+```
+GET /api/health
+
+Response (200 OK):
+{
+  "springBoot": "UP",
+  "aiService": "UP|DOWN",
+  "ollamaReachable": true,
+  "ollamaModel": "gemma3:4b",
+  "embeddingModel": "all-MiniLM-L6-v2",
+  "totalFaissIndexes": 5,
+  "errorMessage": null | "error string"
+}
+```
+
+### Frontend Pages
+
+| Route | Page | Description |
+|---|---|---|
+| `/` | Redirect | → `/dashboard` |
+| `/dashboard` | `index.html` | Main dashboard with stats + AI status |
+| `/contracts` | `contracts.html` | Contract list |
+| `/contracts/upload` | `upload.html` | Upload form |
+| `/contracts/{id}` | `contract-detail.html` | Contract detail + chunks |
+| `/analysis` | `analysis-list.html` | All analysis results |
+| `/analysis/{id}/results` | `analysis.html` | Single analysis result |
+| `/search` | `search.html` | Search page |
+
+---
+
+## Python AI Service API (FastAPI — port 5000)
+
+Base URL: `http://localhost:5000/api/ai`
+
+### Embed Chunks
 ```
 POST /api/ai/embed
 Content-Type: application/json
@@ -103,9 +220,11 @@ Response (200 OK):
   "embeddingIds": ["uuid1", "uuid2", ...],
   "chunksEmbedded": 5
 }
+
+Errors: 400 if chunks empty, 500 on processing error
 ```
 
-#### Analyze Contract (RAG)
+### Analyze Contract (RAG)
 ```
 POST /api/ai/analyze
 Content-Type: application/json
@@ -113,12 +232,12 @@ Content-Type: application/json
 Request:
 {
   "contractId": "string",
-  "chunkTexts": ["chunk1 text", "chunk2 text", ...]
+  "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
 }
 
 Response (200 OK):
 {
-  "summary": "structured summary text",
+  "summary": "structured summary text...",
   "riskScore": 4.2,
   "penaltyClauses": ["clause 1", "clause 2"],
   "terminationRisks": ["risk 1", "risk 2"],
@@ -126,16 +245,61 @@ Response (200 OK):
   "otherFlags": ["flag 1", "flag 2"],
   "chunksUsed": 7
 }
+
+Errors: 400 if chunkTexts empty, 500 on processing error
+
+Notes:
+  - Retrieves relevant chunks from FAISS using multi-query strategy
+  - Runs map-reduce summarization: parallel summarization → single combined output
+  - Single LLM call for both summary + risk JSON extraction
+  - Falls back to raw chunkTexts if FAISS index is missing
 ```
 
-#### Semantic Search
+### Extract Contract (Extraction-First Pipeline)
+```
+POST /api/ai/extract
+Content-Type: application/json
+
+Request:
+{
+  "contractId": "string",
+  "chunkTexts": ["chunk 1 text", "chunk 2 text", ...]
+}
+
+Response (200 OK):
+{
+  "contractId": "string",
+  "chunks": [
+    {
+      "chunk_id": 0,
+      "data": {
+        "parties": ["Party A", "Party B"],
+        "obligations": ["obligation 1"],
+        "payment_terms": ["net 30"],
+        "dates": ["2026-01-01"],
+        "penalties": ["late fee 5%"],
+        "termination": ["30 day notice"]
+      }
+    }
+  ],
+  "totalChunks": 12,
+  "processingTimeMs": 1234
+}
+
+Notes:
+  - Lightweight extraction pipeline for low-resource machines
+  - Splits chunks into sentences → filters by cosine similarity → extracts structured JSON
+  - Per-chunk structured data for Java to merge client-side
+```
+
+### Semantic Search
 ```
 POST /api/ai/search
 Content-Type: application/json
 
 Request:
 {
-  "contractId": "string",  // optional
+  "contractId": "string",   // optional
   "query": "search query",
   "topK": 5
 }
@@ -153,11 +317,36 @@ Response (200 OK):
   "query": "search query",
   "count": 3
 }
+
+Notes:
+  - Encodes query and performs FAISS approximate nearest-neighbour search
+  - Scoped to one contract if contractId provided; searches all otherwise
 ```
 
-#### Delete Contract Vectors
+### Q&A — Ask a Question
 ```
-DELETE /api/ai/contract/{id}
+POST /api/ai/ask
+Content-Type: application/json
+
+Request:
+{
+  "contractId": "string",   // optional
+  "query": "What are the payment terms?",
+  "chunks": ["chunk text 1", "chunk text 2", ...]
+}
+
+Response (200 OK):
+{
+  "answer": "The payment terms require...",
+  "chunksUsed": 5
+}
+
+Errors: 400 if chunks empty
+```
+
+### Delete Contract Vectors
+```
+DELETE /api/ai/contract/{contractId}
 
 Response (200 OK):
 {
@@ -167,55 +356,93 @@ Response (200 OK):
 }
 ```
 
-#### Health Check
+### Health Check
 ```
 GET /api/ai/health
 
 Response (200 OK):
 {
-  "status": "ok|degraded",
+  "status": "ok|degraded|starting",
   "embeddingModel": "all-MiniLM-L6-v2",
   "ollamaModel": "gemma3:4b",
   "ollamaReachable": true,
   "totalIndexes": 5
 }
+
+Notes:
+  - status = "starting" during first 5-20s (embedding model loading in background)
+  - status = "degraded" when LLM not reachable but embedder is loaded
 ```
 
-## 📋 Request/Response Examples
+---
 
-### Example: Upload and Analyze a Contract
+## Complete Endpoint Reference
 
-**1. Upload Contract**
-```bash
-curl -X POST http://localhost:6969/upload \
-  -F "file=@contract.pdf" \
-  -F "name=my_contract"
-```
+### Backend (port 6969)
 
-**2. Analyze Contract**
-```bash
-curl -X POST http://localhost:6969/contracts/{id}/analyze
-```
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/` | No | Redirect to /dashboard |
+| GET | `/dashboard` | No | Dashboard page with stats |
+| GET | `/contracts` | No | List all contracts |
+| GET | `/contracts/upload` | No | Upload form |
+| POST | `/contracts/upload` | No | Upload contract file |
+| GET | `/contracts/{id}` | No | Contract detail |
+| POST | `/contracts/{id}/delete` | No | Delete contract |
+| POST | `/analysis/{contractId}/run` | No | Trigger analysis |
+| GET | `/analysis/{contractId}/results` | No | Analysis results |
+| GET | `/analysis` | No | All analysis results |
+| POST | `/analysis/search` | No | Semantic search |
+| GET | `/api/analysis/updates` | No | Polling for toasts |
+| GET | `/api/contracts/{id}/status` | No | Contract processing status |
+| GET | `/search` | No | Search page |
+| GET | `/health` | No | Simple health check |
+| GET | `/api/health` | No | JSON health status |
 
-**3. Search Contract**
-```bash
-curl -X POST http://localhost:6969/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "termination clauses", "topK": 5}'
-```
+### Python AI Service (port 5000)
 
-## ⚙️ Configuration Reference
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/ai/embed` | Embed chunks in FAISS |
+| POST | `/api/ai/analyze` | RAG summarization + risk |
+| POST | `/api/ai/extract` | Extraction-first pipeline |
+| POST | `/api/ai/search` | Semantic search |
+| POST | `/api/ai/ask` | Q&A from chunk texts |
+| DELETE | `/api/ai/contract/{id}` | Delete vectors |
+| GET | `/api/ai/health` | Health check |
+| GET | `/` | Service info + docs link |
 
-### Backend Configuration (application.yaml)
+## Error Codes
 
+| Code | Meaning |
+|------|---------|
+| `400 Bad Request` | Invalid input, empty chunks, missing file |
+| `404 Not Found` | Contract or analysis not found |
+| `413 Payload Too Large` | File exceeds 20MB limit |
+| `500 Internal Server Error` | Backend or AI service processing error |
+| `503 Service Unavailable` | AI service not reachable (graceful degradation) |
+
+## Contract Processing Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `UPLOADED` | File uploaded, not yet processed |
+| `EXTRACTING` | Text extraction in progress |
+| `CHUNKING` | Text splitting into chunks |
+| `PENDING_AI` | Awaiting AI embedding/analysis |
+| `ANALYZING` | RAG analysis in progress |
+| `COMPLETED` | All processing done |
+| `FAILED` | Processing failed |
+
+## Configuration Reference
+
+### Backend (`application.yaml`)
 ```yaml
 spring:
   application:
     name: ai-assistant-backend
-
   mongodb:
     uri: mongodb://admin:password@localhost:27017/ai_assistant_db?authSource=admin
-
   servlet:
     multipart:
       max-file-size: 20MB
@@ -223,13 +450,11 @@ spring:
 
 app:
   upload:
-    dir: /path/to/uploads
+    dir: ./uploads
     allowed-types: application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
-
   chunking:
-    size: 2500      # characters per chunk
-    overlap: 100    # characters of overlap between chunks
-
+    size: 2500
+    overlap: 100
   ai:
     service:
       url: http://localhost:5000
@@ -237,13 +462,13 @@ app:
       timeout-seconds: 1200
       max-retries: 2
       retry-delay-ms: 1000
+      health-timeout-seconds: 5
 
 server:
   port: 6969
 ```
 
-### AI Service Configuration (.env)
-
+### AI Service (`.env`)
 ```env
 HOST=0.0.0.0
 PORT=5000
@@ -255,32 +480,18 @@ EMBEDDING_BATCH_SIZE=32
 
 FAISS_INDEX_DIR=./data/faiss_indexes
 
+# LLM — Primary
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_MODEL=meta/llama3-70b-instruct
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+
+# LLM — Fallback
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma3:4b
 OLLAMA_MAX_TOKENS=1024
 OLLAMA_TEMPERATURE=0.1
 
+# RAG
 RAG_TOP_K=7
 RAG_MIN_SCORE=0.30
 ```
-
-## 🔑 API Key Endpoints Reference
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/upload` | POST | No | Upload contract file |
-| `/contracts` | GET | No | List all contracts |
-| `/contracts/{id}` | GET | No | Get contract details |
-| `/contracts/{id}` | DELETE | No | Delete contract |
-| `/api/ai/embed` | POST | Yes | Embed chunks (internal) |
-| `/api/ai/analyze` | POST | Yes | Analyze contract (internal) |
-| `/api/ai/search` | POST | Yes | Search contracts (internal) |
-| `/api/ai/health` | GET | No | Health check |
-
-## ⚠️ Error Codes
-
-- `400 Bad Request`: Invalid input, missing required fields
-- `404 Not Found`: Contract not found
-- `413 Payload Too Large`: File exceeds 20MB limit
-- `500 Internal Server Error`: Backend or AI service errors
-- `503 Service Unavailable`: AI service not reachable (graceful degradation)
