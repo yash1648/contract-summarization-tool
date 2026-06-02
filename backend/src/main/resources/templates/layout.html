@@ -465,20 +465,10 @@
             overflow: hidden;
         }
         .toast-enhanced .toast-body {
-            display: flex;
-            align-items: flex-start;
-            gap: 0.75rem;
             padding: 1rem 1.125rem 0.75rem;
         }
-        .toast-enhanced .toast-icon {
-            font-size: 1.3rem;
-            line-height: 1.4;
-            flex-shrink: 0;
-        }
         .toast-enhanced .toast-content {
-            flex: 1;
             min-width: 0;
-            padding-top: 0.05rem;
         }
         .toast-enhanced .toast-title {
             font-weight: 600;
@@ -493,23 +483,6 @@
             margin-top: 0.2rem;
             word-break: break-word;
             overflow-wrap: break-word;
-        }
-        .toast-enhanced .toast-close {
-            background: none;
-            border: none;
-            color: inherit;
-            opacity: 0.45;
-            cursor: pointer;
-            padding: 0.15rem 0.25rem;
-            font-size: 1.2rem;
-            line-height: 1;
-            border-radius: 4px;
-            transition: opacity 0.15s, background 0.15s;
-            flex-shrink: 0;
-        }
-        .toast-enhanced .toast-close:hover {
-            opacity: 1;
-            background: rgba(255,255,255,0.08);
         }
         .toast-enhanced .toast-actions {
             display: flex;
@@ -550,7 +523,6 @@
             border-color: rgba(16, 185, 129, 0.2);
             border-left: 4px solid #34d399;
         }
-        .toast-enhanced.toast-success .toast-icon { color: #34d399; }
         .toast-enhanced.toast-success .toast-title { color: #34d399; }
         .toast-enhanced.toast-success .toast-btn-primary {
             color: #34d399;
@@ -567,7 +539,6 @@
             border-color: rgba(239, 68, 68, 0.2);
             border-left: 4px solid #f87171;
         }
-        .toast-enhanced.toast-error .toast-icon { color: #f87171; }
         .toast-enhanced.toast-error .toast-title { color: #f87171; }
         .toast-enhanced.toast-error .toast-btn-primary {
             color: #f87171;
@@ -825,16 +796,9 @@
                 var container = document.getElementById('toastContainer');
                 if (!container) return;
 
-                var iconMap = {
-                    success: 'bi-check-circle-fill',
-                    error:   'bi-exclamation-triangle-fill',
-                    info:    'bi-info-circle-fill'
-                };
-
                 var toast = document.createElement('div');
                 toast.className = 'toast-enhanced toast-' + type;
 
-                var icon = iconMap[type] || iconMap.info;
                 var actionsHtml = actions.map(function(a) {
                     var cls = 'toast-btn toast-btn-' + (a.primary ? 'primary' : 'dismiss');
                     var attr = a.href ? 'href="' + a.href + '"' : '';
@@ -846,22 +810,15 @@
 
                 toast.innerHTML =
                     '<div class="toast-body">' +
-                        '<div class="toast-icon"><i class="bi ' + icon + '"></i></div>' +
                         '<div class="toast-content">' +
                             '<div class="toast-title">' + window.escapeHtml(title) + '</div>' +
                             '<div class="toast-message">' + window.escapeHtml(message) + '</div>' +
                         '</div>' +
-                        '<button class="toast-close" aria-label="Close">&times;</button>' +
                     '</div>' +
                     '<div class="toast-actions">' + actionsHtml + '</div>';
 
                 // Wire up buttons
                 container.appendChild(toast);
-
-                // Close button
-                toast.querySelector('.toast-close').addEventListener('click', function() {
-                    dismissToast(toast);
-                });
 
                 // Action buttons (non-link)
                 toast.querySelectorAll('.toast-btn:not(a)').forEach(function(btn) {
@@ -901,8 +858,8 @@
                                     'Analysis Complete',
                                     name,
                                     [
-                                        { label: 'View Results', icon: 'bi-eye', href: link, primary: true },
-                                        { label: 'Dismiss', icon: 'bi-x-lg' }
+                                        { label: 'View Results', href: link, primary: true },
+                                        { label: 'Dismiss' }
                                     ]
                                 );
                             } else if (u.status === 'FAILED') {
@@ -911,8 +868,8 @@
                                     'Analysis Failed',
                                     name,
                                     [
-                                        { label: 'Try Again', icon: 'bi-arrow-clockwise', href: '/contracts/upload', primary: true },
-                                        { label: 'Dismiss', icon: 'bi-x-lg' }
+                                        { label: 'Try Again', href: '/contracts/upload', primary: true },
+                                        { label: 'Dismiss' }
                                     ]
                                 );
                             }
