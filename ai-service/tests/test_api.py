@@ -255,7 +255,9 @@ class TestHealth:
             resp = client.get("/api/ai/health")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] in ("ok", "degraded")
+        # embedder.is_loaded determines status: "starting" if still loading,
+        # "ok" if ready + LLM reachable, "degraded" if ready but LLM down
+        assert data["status"] in ("starting", "ok", "degraded")
         assert "embeddingModel" in data
         assert "ollamaModel" in data
         assert isinstance(data["ollamaReachable"], bool)

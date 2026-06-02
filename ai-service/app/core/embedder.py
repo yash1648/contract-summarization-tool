@@ -38,17 +38,29 @@ class EmbeddingService:
             cls._instance._loaded = False
         return cls._instance
 
+    @property
+    def is_loaded(self) -> bool:
+        """True after load() has completed successfully."""
+        return self._loaded
+
     # ── Initialisation ───────────────────────────────────────────────────────
 
     def load(self) -> None:
         """
-        Load the model from disk / HuggingFace hub.
-        Called once during application startup.
-        Subsequent calls are no-ops.
+        Load the embedding model from the local project directory.
+        Called once during startup (deferred to background thread).
+
+        The model lives at ``settings.embedding_model`` (default:
+        ``./models/all-MiniLM-L6-v2``) — a standalone copy saved by
+        ``SentenceTransformer.save()``.  Loading is purely local;
+        no HuggingFace download occurs at runtime.
         """
         if self._loaded:
             return
-        logger.info(f"Loading embedding model: {settings.embedding_model}")
+        logger.info(
+            f"Loading embedding model from: {settings.embedding_model}  "
+            f"(89 MB, 5-15 s CPU load)"
+        )
         self._model = SentenceTransformer(settings.embedding_model)
         # Quick sanity-check
         test = self._model.encode(["hello world"])

@@ -37,8 +37,8 @@
                 <div class="stat-label">File Type</div>
                 <div class="fw-bold fs-5 mt-1">
                     <i class="bi me-1"
-                       th:classappend="${contract.fileType.contains('pdf')} ? 'bi-file-earmark-pdf text-danger' : 'bi-file-earmark-word text-primary'"></i>
-                    <span th:text="${contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
+                       th:classappend="${contract.fileType != null and contract.fileType.contains('pdf')} ? 'bi-file-earmark-pdf text-danger' : 'bi-file-earmark-word text-primary'"></i>
+                    <span th:text="${contract.fileType != null and contract.fileType.contains('pdf') ? 'PDF' : 'DOCX'}">PDF</span>
                 </div>
             </div>
         </div>

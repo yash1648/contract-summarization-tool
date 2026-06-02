@@ -549,8 +549,8 @@
             </li>
         </ul>
         <div class="sidebar-footer">
-            <div>SY B.Tech 2024–25</div>
-            <div style="color:var(--text-dim);">RAG-Based Legal AI</div>
+            <div></div>
+            <div style="color:var(--text-dim);"></div>
         </div>
     </nav>
 
@@ -578,6 +578,27 @@
 
     <!-- ── Bootstrap JS ─────────────────────────────────────────── -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- ── Marked (markdown-to-HTML) ────────────────────────────── -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // ── Auto-render markdown for .markdown-content elements ──
+        // Converts the element's textContent from markdown to HTML.
+        // Safe: reads from textContent (not innerHTML) so no escaping issues.
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.markdown-content').forEach(function(el) {
+                var raw = el.textContent.trim();
+                if (raw) {
+                    el.innerHTML = marked.parse(raw);
+                }
+            });
+        });
+
+        // ── Render markdown string to HTML (for dynamic content) ─
+        function renderMarkdown(text) {
+            if (!text) return '';
+            return marked.parse(text);
+        }
+    </script>
     <script>
         // ── Sidebar toggle ────────────────────────────────────────
         (function() {
@@ -603,25 +624,41 @@
             });
 
             // ── Active nav link ────────────────────────────────────
-            const currentPath = window.location.pathname;
+            var currentPath = window.location.pathname;
             document.querySelectorAll('.sidebar-nav .nav-link').forEach(function(link) {
-                const href = link.getAttribute('href');
-                if (href && currentPath.startsWith(href) && href !== '/') {
-                    link.classList.add('active');
-                } else if (href === '/' && currentPath === '/') {
+                var href = link.getAttribute('href');
+                if (!href) return;
+
+                // Dashboard: root or /dashboard
+                if (href === '/' || href === '/dashboard') {
+                    if (currentPath === '/' || currentPath === '/dashboard') {
+                        link.classList.add('active');
+                    }
+                    return;
+                }
+
+                // Analysis: exact match OR sub-pages like /analysis/{id}/results
+                if (href === '/analysis') {
+                    if (currentPath === '/analysis' || currentPath.startsWith('/analysis/')) {
+                        link.classList.add('active');
+                    }
+                    return;
+                }
+
+                // All other links: exact match ONLY (prevents /contracts/upload
+                // from also highlighting /contracts)
+                if (currentPath === href) {
                     link.classList.add('active');
                 }
             });
-            // Fix: exact match for root paths
-            if (currentPath === '/' || currentPath === '/dashboard') {
-                document.getElementById('nav-dashboard')?.classList.add('active');
-            }
 
             // ── Auto-dismiss flash after 8s ────────────────────────
             document.querySelectorAll('.flash-container .alert').forEach(function(el) {
                 setTimeout(function() {
-                    var bsAlert = new bootstrap.Alert(el);
-                    bsAlert.close();
+                    if (document.body.contains(el)) {
+                        var bsAlert = new bootstrap.Alert(el);
+                        bsAlert.close();
+                    }
                 }, 8000);
             });
 

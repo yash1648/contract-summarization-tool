@@ -4,16 +4,17 @@ main.py
 FastAPI application entry point.
 
 Startup sequence:
-  1. Load sentence-transformer embedding model (warm-up)
-  2. Restore any persisted FAISS indexes from disk
-  3. Log Ollama connectivity status
-  4. Mount API router
-  5. Serve on configured host:port
+  1. Start HTTP server immediately (<1 s)
+  2. Load embedding model in background thread (avoids blocking startup for 5-15 s)
+  3. Check LLM connectivity in background thread
+  4. Restore any persisted FAISS indexes from disk (fast, happens during import)
+  5. Mount API router
 
 Run with:
     uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 """
 from contextlib import asynccontextmanager
+import threading
 
 import uvicorn
 from fastapi import FastAPI
@@ -25,6 +26,39 @@ from app.api.routes import router
 from app.core.embedder import embedder
 from app.core.llm_client import llm_client
 from app.core.vector_store import vector_store
+
+
+# ── Background init tracking ───────────────────────────────────────────────
+
+_startup_ready = threading.Event()
+"""Set after background init (embedder + LLM check) completes."""
+
+
+def _background_init() -> None:
+    """Run heavy startup tasks in a background thread so the HTTP server
+    starts serving immediately (<1 s) instead of blocking for 5-20 s."""
+    # 1. Load embedding model (5-15 s even from HuggingFace cache)
+    logger.info("Background init: loading embedding model…")
+    embedder.load()
+
+    # 2. FAISS indexes are loaded in VectorStore.__init__() (fast)
+    logger.info(f"Background init: FAISS indexes loaded: {vector_store.total_indexes()}")
+
+    # 3. Check LLM provider connectivity (NVIDIA NIM → Ollama fallback)
+    if llm_client.is_reachable():
+        if settings.nvidia_api_key:
+            logger.info(f"Background init: NVIDIA NIM OK  model={settings.nvidia_model}")
+        else:
+            logger.info(f"Background init: Ollama OK  model={settings.ollama_model}")
+    else:
+        logger.warning(
+            "Background init: No LLM provider reachable. "
+            "Set NVIDIA_API_KEY for cloud inference or start Ollama for local inference. "
+            "Embedding and search will work, but LLM calls will fail."
+        )
+
+    _startup_ready.set()
+    logger.info(f"AI service fully ready on http://{settings.host}:{settings.port}")
 
 
 # ── Lifespan (startup / shutdown) ────────────────────────────────────────────
@@ -39,31 +73,12 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("  AI Contract Summarization Service — starting up")
     logger.info("=" * 60)
+    logger.info("Server will be available in <1 s; background init may take 5-20 s more.")
 
-    # 1. Load embedding model (downloads ~90 MB on first run)
-    logger.info("Loading embedding model…")
-    embedder.load()
+    # Launch heavy init in a background thread (daemon = won't block shutdown)
+    threading.Thread(target=_background_init, daemon=True, name="ai-background-init").start()
 
-    # 2. FAISS indexes are loaded in VectorStore.__init__()
-    logger.info(f"FAISS indexes loaded: {vector_store.total_indexes()}")
-
-    # 3. Check LLM provider connectivity (NVIDIA NIM → Ollama fallback)
-    if llm_client.is_reachable():
-        if settings.nvidia_api_key:
-            logger.info(f"NVIDIA NIM OK  model={settings.nvidia_model}")
-        else:
-            logger.info(f"Ollama OK  model={settings.ollama_model}")
-    else:
-        logger.warning(
-            "No LLM provider reachable. "
-            "Set NVIDIA_API_KEY for cloud inference or start Ollama for local inference. "
-            "Embedding and search will work, but LLM calls will fail."
-        )
-
-    logger.info(f"AI service ready on http://{settings.host}:{settings.port}")
-    logger.info("=" * 60)
-
-    yield   # ← application runs here
+    yield   # ← application runs here immediately
 
     # ── SHUTDOWN ─────────────────────────────────────────────
     logger.info("AI service shutting down. Goodbye.")

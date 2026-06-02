@@ -19,9 +19,7 @@
 
         <!-- ── AI Status Banner ──────────────────────────────────── -->
         <div class="d-flex align-items-center gap-3 p-3 mb-4 rounded-3"
-             th:classappend="${aiStatus.isUp()} ? 'bg-success-transparent' : 'bg-warning-transparent'"
-             style="border:1px solid; backdrop-filter:blur(8px);"
-             th:styleappend="${aiStatus.isUp()} ? 'background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);' : 'background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.2);'">
+             th:style="${aiStatus.isUp()} ? 'border:1px solid rgba(16,185,129,0.2);background:rgba(16,185,129,0.08);backdrop-filter:blur(8px);' : 'border:1px solid rgba(245,158,11,0.2);background:rgba(245,158,11,0.08);backdrop-filter:blur(8px);'">
             <i class="bi fs-3 flex-shrink-0"
                th:classappend="${aiStatus.isUp()} ? 'bi-cpu-fill text-success' : 'bi-exclamation-triangle text-warning'"></i>
             <div class="flex-grow-1 min-width-0">
@@ -98,7 +96,7 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-2">
                                                 <i class="bi flex-shrink-0"
-                                                   th:classappend="${c.fileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
+                                                   th:classappend="${c.fileName != null and c.fileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
                                                 <span class="fw-semibold small" th:text="${c.fileName}">-</span>
                                             </div>
                                         </td>
@@ -146,7 +144,7 @@
                                         <td>
                                             <div class="d-flex align-items-center gap-2">
                                                 <i class="bi flex-shrink-0"
-                                                   th:classappend="${a.contractFileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
+                                                   th:classappend="${a.contractFileName != null and a.contractFileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
                                                 <span class="small fw-semibold" th:text="${a.contractFileName}">-</span>
                                             </div>
                                         </td>

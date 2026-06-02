@@ -38,7 +38,7 @@
                             <td>
                                 <div class="d-flex align-items-center gap-2">
                                     <i class="bi flex-shrink-0"
-                                       th:classappend="${r.contractFileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
+                                       th:classappend="${r.contractFileName != null and r.contractFileName.toLowerCase().endsWith('.pdf')} ? 'bi-file-earmark-pdf-fill text-danger' : 'bi-file-earmark-word-fill text-primary'"></i>
                                     <a th:href="@{/contracts/{id}(id=${r.contractId})}"
                                        class="text-decoration-none fw-semibold text-truncate d-inline-block" style="max-width:200px;"
                                        th:text="${r.contractFileName}">file.pdf</a>

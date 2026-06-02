@@ -22,6 +22,7 @@ from loguru import logger
 from app.core.rag_pipeline import rag_pipeline
 from app.core.llm_client import llm_client
 from app.core.vector_store import vector_store
+from app.core.embedder import embedder
 from app.config import settings
 from app.models.schemas import (
     AskRequest, AskResponse,
@@ -338,14 +339,26 @@ async def delete_contract(
 )
 async def health() -> HealthResponse:
     """
-    Returns status of all sub-systems:
-      - Embedding model loaded
-      - Ollama reachable + model available
-      - Number of loaded FAISS indexes
+    Returns status of all sub-systems.
+
+    NOTE: The embedding model + LLM check now run in a background thread
+    after the server starts (<1 s boot). During the first 5-20 s the
+    service reports 'starting' — routes that need the embedder will
+    auto-load it on first call (slightly slower first request, but the
+    server is already accepting connections).
     """
-    llm_ok = llm_client.is_reachable()
+    if embedder.is_loaded:
+        # Background init has finished — do a proper LLM reachability check
+        llm_ok = llm_client.is_reachable()
+        status = "ok" if llm_ok else "degraded"
+    else:
+        # Embedder still loading in background — skip the HTTP round-trip
+        # (which would add 1-3 s to this health check for no benefit)
+        llm_ok = False
+        status = "starting"
+
     return HealthResponse(
-        status="ok" if llm_ok else "degraded",
+        status=status,
         embeddingModel=settings.embedding_model,
         ollamaModel=settings.ollama_model,
         ollamaReachable=llm_ok,

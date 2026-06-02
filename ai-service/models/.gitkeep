@@ -1,0 +1,2 @@
+# Model files go here
+# Run `python scripts/download-model.py` or `bash scripts/setup.sh` to download the embedding model

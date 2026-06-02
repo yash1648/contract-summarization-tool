@@ -125,8 +125,8 @@
                                 <strong>Answer</strong>
                                 <small class="ms-auto opacity-75">AI-generated from ${data.results.length} source(s)</small>
                             </div>
-                            <div class="card-body">
-                                <p class="mb-0" style="white-space:pre-wrap; line-height:1.7;">${escapeHtml(data.answer)}</p>
+                            <div class="card-body markdown-rendered">
+                                ${renderMarkdown(data.answer)}
                             </div>
                         </div>`;
                 } else if (data.answer == null) {
